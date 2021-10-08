@@ -1,0 +1,22 @@
+name: Build and test Go
+on: push
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.17
+
+      - name: Check out source code
+        uses: actions/checkout@v2
+
+      - name: Test
+        run: go test -v ./...
+
+      - name: Staticcheck
+        run: |
+          # go get -u honnef.co/go/tools/cmd/staticcheck
+          # staticcheck ./...

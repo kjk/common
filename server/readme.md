@@ -1,3 +1,8 @@
+Package `github.com/kjk/common/server` is an abstraction
+over http server in Go std lib.
+
+You won't like it, it's too different.
+
 Those are useful snippets that use the server code for re-use.
 Copy & paste & modify for your purpose.
 
