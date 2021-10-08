@@ -1,5 +1,7 @@
 package u
 
+import "strings"
+
 // NormalizeNewlinesInPlace changes CRLF (Windows) and
 // CR (Mac) to LF (Unix)
 // Optimized for speed, modifies data in place
@@ -31,4 +33,13 @@ func NormalizeNewlinesInPlace(d []byte) []byte {
 func NormalizeNewlines(d []byte) []byte {
 	d = append([]byte{}, d...)
 	return NormalizeNewlinesInPlace(d)
+}
+
+// Capitalize does foo => Foo, BAR => Bar etc.
+func Capitalize(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	s = strings.ToLower(s)
+	return strings.ToUpper(s[0:1]) + s[1:]
 }

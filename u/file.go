@@ -1,6 +1,10 @@
 package u
 
-import "os"
+import (
+	"io"
+	"os"
+	"path/filepath"
+)
 
 // PathExists returns true if path exists
 func PathExists(path string) bool {
@@ -27,4 +31,29 @@ func FileSize(path string) int64 {
 		return st.Size()
 	}
 	return -1
+}
+
+// CopyFile copies a file from src to dst
+// It'll create destination directory if necessary
+func CopyFile(dst string, src string) error {
+	err := os.MkdirAll(filepath.Dir(dst), 0755)
+	if err != nil {
+		return err
+	}
+	fin, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer fin.Close()
+	fout, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(fout, fin)
+	err2 := fout.Close()
+	if err != nil || err2 != nil {
+		os.Remove(dst)
+	}
+	return err
 }
