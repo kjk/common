@@ -1,6 +1,10 @@
 package u
 
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+	"strings"
+)
 
 func Must(err error) {
 	if err != nil {
@@ -34,4 +38,8 @@ func PanicIfErr(err error, args ...interface{}) {
 		}
 	}
 	panic(s)
+}
+
+func IsWindows() bool {
+	return strings.Contains(runtime.GOOS, "windows")
 }
