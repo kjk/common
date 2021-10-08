@@ -1,2 +1,1 @@
-# common
-code that I re-use among many Go projects
+A bunch of Go packages that I use in multiple projects.
