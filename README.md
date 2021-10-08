@@ -1,6 +1,8 @@
 A bunch of Go packages that I use in multiple projects.
 
 An overview of packages:
+* `u` : utility functions that I use all the time. Very short package name
+is on purpose
 * `filerotate` : implements a file you can write to and rotates on a schedule
 (e.g. daily or hourly). I use it for log files
 * `server` : a very specific abstraction over http server that allows
