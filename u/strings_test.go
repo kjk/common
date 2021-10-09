@@ -20,3 +20,27 @@ func TestTrimPrefix(t *testing.T) {
 		assert.Equal(t, trimmed, tests[i] != got, "%#v, %#v", tests[i], tests[i+1])
 	}
 }
+
+func TestCapitalize(t *testing.T) {
+	tests := []struct {
+		s   string
+		exp string
+	}{
+		{
+			s:   "foo",
+			exp: "Foo",
+		},
+		{
+			s:   "FOO",
+			exp: "Foo",
+		},
+		{
+			s:   "FOO baR",
+			exp: "Foo bar",
+		},
+	}
+	for _, test := range tests {
+		got := Capitalize(test.s)
+		assert.Equal(t, test.exp, got)
+	}
+}
