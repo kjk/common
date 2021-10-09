@@ -106,12 +106,6 @@ func shouldLogHeader(s string) bool {
 }
 
 func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
-	uri := r.URL.Path
-	if strings.HasPrefix(uri, "/ping") {
-		// our internal health monitoring endpoint is called frequently, don't log
-		return nil
-	}
-
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
