@@ -8,7 +8,7 @@ Copy & paste & modify for your purpose.
 
 ```go
 import (
-	"github.com/kjk/cheatsheets/pkg/server"
+	"github.com/kjk/common/server"
 )
 ```
 
