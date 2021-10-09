@@ -1,7 +1,6 @@
 package httplogger
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -188,30 +187,4 @@ func requestGetRemoteAddress(r *http.Request) string {
 		return parts[0]
 	}
 	return hdrRealIP
-}
-
-// --------------------- utils
-
-func must(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
-func panicIf(cond bool, args ...interface{}) {
-	if !cond {
-		return
-	}
-	s := "condition failed"
-	if len(args) > 0 {
-		s = fmt.Sprintf("%s", args[0])
-		if len(args) > 1 {
-			s = fmt.Sprintf(s, args[1:]...)
-		}
-	}
-	panic(s)
-}
-
-func ctx() context.Context {
-	return context.Background()
 }
