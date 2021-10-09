@@ -103,3 +103,17 @@ func PostMultiPart(uri string, files map[string]string) ([]byte, error) {
 	}
 	return ioutil.ReadAll(resp.Body)
 }
+
+func JoinURL(s1, s2 string) string {
+	if strings.HasSuffix(s1, "/") {
+		if strings.HasPrefix(s2, "/") {
+			return s1 + s2[1:]
+		}
+		return s1 + s2
+	}
+
+	if strings.HasPrefix(s2, "/") {
+		return s1 + s2
+	}
+	return s1 + "/" + s2
+}
