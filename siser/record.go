@@ -35,28 +35,40 @@ type Record struct {
 	Timestamp time.Time
 }
 
-func (r *Record) appendKeyVal(key, val string) {
-	e := Entry{
-		Key:   key,
-		Value: val,
-	}
-	r.Entries = append(r.Entries, e)
-}
-
 // Write writes key/value pairs to a record.
 // After you write all key/value pairs, call Marshal()
 // to get serialized value (valid until next call to Reset())
-func (r *Record) Write(args ...string) {
+func (r *Record) Write(args ...string) error {
 	n := len(args)
 	if n == 0 || n%2 != 0 {
-		panic(fmt.Sprintf("Invalid number of args: %d", len(args)))
+		return fmt.Errorf("invalid number of args: %d. Should be multiple of 2", len(args))
 	}
 	for i := 0; i < n; i += 2 {
-		r.marshalKeyVal(args[i], args[i+1])
-		// TODO: this is for api compat with older version
-		// remove it and fix the tests
-		r.appendKeyVal(args[i], args[i+1])
+		k := args[i]
+		v := args[i+1]
+		r.marshalKeyVal(k, v)
 	}
+	return nil
+}
+
+// WriteNonEmpty is like Write but won't write records with empty values
+func (r *Record) WriteNonEmpty(args ...string) error {
+	n := len(args)
+	if n == 0 || n%2 != 0 {
+		return fmt.Errorf("invalid number of args: %d. Should be multiple of 2", len(args))
+	}
+	for i := 0; i < n; i += 2 {
+		k := args[i]
+		if len(k) == 0 {
+			return fmt.Errorf("empty key")
+		}
+		v := args[i+1]
+		if len(v) == 0 {
+			continue
+		}
+		r.marshalKeyVal(k, v)
+	}
+	return nil
 }
 
 // Reset makes it easy to re-use Record (as opposed to allocating a new one
@@ -71,9 +83,8 @@ func (r *Record) Reset() {
 	r.buf.Reset()
 }
 
-// Get returns a value for a given key
-func (r *Record) Get(key string) (string, bool) {
-	for _, e := range r.Entries {
+func get(entries []Entry, key string) (string, bool) {
+	for _, e := range entries {
 		if e.Key == key {
 			return e.Value, true
 		}
@@ -81,19 +92,25 @@ func (r *Record) Get(key string) (string, bool) {
 	return "", false
 }
 
-func nonEmptyEndsWithNewline(s string) bool {
-	n := len(s)
-	return n == 0 || s[n-1] == '\n'
-}
-
-// return true if value needs to be serialized in long,
-// size-prefixed format
-func needsLongFormat(s string) bool {
-	return len(s) == 0 || len(s) > 120 || !serializableOnLine(s)
+// Get returns a value for a given key
+func (r *Record) Get(key string) (string, bool) {
+	return get(r.Entries, key)
 }
 
 func (r *Record) marshalKeyVal(key, val string) {
 	r.buf.WriteString(key)
+
+	nonEmptyEndsWithNewline := func(s string) bool {
+		n := len(s)
+		return n == 0 || s[n-1] == '\n'
+	}
+
+	// return true if value needs to be serialized in long,
+	// size-prefixed format
+	needsLongFormat := func(s string) bool {
+		return len(s) == 0 || len(s) > 120 || !serializableOnLine(s)
+	}
+
 	isLong := needsLongFormat(val)
 	if isLong {
 		r.buf.WriteString(":+")
@@ -127,6 +144,14 @@ func UnmarshalRecord(d []byte, r *Record) (*Record, error) {
 		r.Reset()
 	}
 
+	appendKeyVal := func(key, val string) {
+		e := Entry{
+			Key:   key,
+			Value: val,
+		}
+		r.Entries = append(r.Entries, e)
+	}
+
 	for len(d) > 0 {
 		idx := bytes.IndexByte(d, '\n')
 		if idx == -1 {
@@ -147,7 +172,7 @@ func UnmarshalRecord(d []byte, r *Record) (*Record, error) {
 		kind := val[0]
 		val = val[1:]
 		if kind == ' ' {
-			r.appendKeyVal(string(key), string(val))
+			appendKeyVal(string(key), string(val))
 			continue
 		}
 
@@ -171,7 +196,7 @@ func UnmarshalRecord(d []byte, r *Record) (*Record, error) {
 		if len(d) > 0 && d[0] == '\n' {
 			d = d[1:]
 		}
-		r.appendKeyVal(string(key), string(val))
+		appendKeyVal(string(key), string(val))
 	}
 	return r, nil
 }
@@ -180,6 +205,7 @@ func UnmarshalRecord(d []byte, r *Record) (*Record, error) {
 // into it.
 func (r *Record) Unmarshal(d []byte) error {
 	rec, err := UnmarshalRecord(d, r)
+	// if those fails it's a bug in the library
 	panicIf(err == nil && rec == nil, "should return err or rec")
 	panicIf(err != nil && rec != nil, "if error, rec should be nil")
 	panicIf(rec != nil && rec != r, "if returned rec, must be same as r")
