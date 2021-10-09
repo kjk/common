@@ -103,3 +103,62 @@ func MimeTypeFromFileName(path string) string {
 	}
 	return ct
 }
+
+// Slug generates safe url from string by removing hazardous characters
+func Slug(s string) string {
+	// whitelisted characters valid in url
+	validateRune := func(c rune) byte {
+		if c >= 'a' && c <= 'z' {
+			return byte(c)
+		}
+		if c >= 'A' && c <= 'Z' {
+			return byte(c)
+		}
+		if c >= '0' && c <= '9' {
+			return byte(c)
+		}
+		if c == '-' || c == '_' || c == '.' {
+			return byte(c)
+		}
+		if c == ' ' {
+			return '-'
+		}
+		return 0
+	}
+
+	charCanRepeat := func(c byte) bool {
+		if c >= 'a' && c <= 'z' {
+			return true
+		}
+		if c >= 'A' && c <= 'Z' {
+			return true
+		}
+		if c >= '0' && c <= '9' {
+			return true
+		}
+		return false
+	}
+
+	s = strings.TrimSpace(s)
+	var res []byte
+	for _, r := range s {
+		c := validateRune(r)
+		if c == 0 {
+			continue
+		}
+		// eliminate duplicate consecutive characters
+		var prev byte
+		if len(res) > 0 {
+			prev = res[len(res)-1]
+		}
+		if c == prev && !charCanRepeat(c) {
+			continue
+		}
+		res = append(res, c)
+	}
+	s = string(res)
+	if len(s) > 128 {
+		s = s[:128]
+	}
+	return s
+}
