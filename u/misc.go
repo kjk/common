@@ -111,9 +111,6 @@ func Slug(s string) string {
 		if c >= 'a' && c <= 'z' {
 			return byte(c)
 		}
-		if c >= 'A' && c <= 'Z' {
-			return byte(c)
-		}
 		if c >= '0' && c <= '9' {
 			return byte(c)
 		}
@@ -130,9 +127,6 @@ func Slug(s string) string {
 		if c >= 'a' && c <= 'z' {
 			return true
 		}
-		if c >= 'A' && c <= 'Z' {
-			return true
-		}
 		if c >= '0' && c <= '9' {
 			return true
 		}
@@ -140,6 +134,7 @@ func Slug(s string) string {
 	}
 
 	s = strings.TrimSpace(s)
+	s = strings.ToLower(s)
 	var res []byte
 	for _, r := range s {
 		c := validateRune(r)
