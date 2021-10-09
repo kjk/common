@@ -32,10 +32,21 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 }
 
 func Post(uri string, body []byte) ([]byte, error) {
-	// default timeout for http.Get() is really long, so dial it down
-	// for both connection and read/write timeouts
-	timeoutClient := newTimeoutClient(time.Second*120, time.Second*120)
-	resp, err := timeoutClient.Post(uri, "", bytes.NewBuffer(body))
+	c := newTimeoutClient(time.Second*120, time.Second*120)
+	resp, err := c.Post(uri, "", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("'%s': status code not 200 (%d)", uri, resp.StatusCode)
+	}
+	return ioutil.ReadAll(resp.Body)
+}
+
+func Get(uri string) ([]byte, error) {
+	c := newTimeoutClient(time.Second*120, time.Second*120)
+	resp, err := c.Get(uri)
 	if err != nil {
 		return nil, err
 	}

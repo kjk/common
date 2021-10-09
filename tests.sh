@@ -1,5 +1,5 @@
 #!/bin/bash
 
 go test ./...
-go install honnef.co/go/tools/cmd/staticcheck
+go install honnef.co/go/tools/cmd/staticcheck@latest
 staticcheck ./...
