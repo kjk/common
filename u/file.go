@@ -1,6 +1,7 @@
 package u
 
 import (
+	"bufio"
 	"crypto/sha1"
 	"fmt"
 	"io"
@@ -87,4 +88,23 @@ func FileSha1Hex(path string) (string, error) {
 func DataSha1Hex(d []byte) string {
 	sha1 := sha1.Sum(d)
 	return fmt.Sprintf("%x", sha1[:])
+}
+
+// ReadLines reads file as lines
+func ReadLines(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	res := make([]string, 0)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		res = append(res, string(line))
+	}
+	if err = scanner.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
