@@ -105,12 +105,6 @@ func shouldLogHeader(s string) bool {
 	return !hdrsToNotLogMap[s]
 }
 
-func recWriteNonEmpty(rec *siser.Record, k, v string) {
-	if v != "" {
-		rec.Write(k, v)
-	}
-}
-
 func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
 	uri := r.URL.Path
 	if strings.HasPrefix(uri, "/ping") {
@@ -128,14 +122,13 @@ func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration
 	rec := &l.rec
 	rec.Reset()
 	rec.Write("req", fmt.Sprintf("%s %s %d", r.Method, r.RequestURI, code))
-	recWriteNonEmpty(rec, "host", r.Host)
-	rec.Write("ipaddr", requestGetRemoteAddress(r))
+	rec.WriteNonEmpty("host", r.Host)
+	rec.WriteNonEmpty("ipaddr", requestGetRemoteAddress(r))
 	rec.Write("size", strconv.FormatInt(size, 10))
 	durMicro := int64(dur / time.Microsecond)
 	rec.Write("durmicro", strconv.FormatInt(durMicro, 10))
 
-	// to minimize logging, we don't log headers if this is
-	// self-referal
+	// to minimize logging, we don't log headers if this is self-referal
 	skipLoggingHeaders := func() bool {
 		ref := r.Header.Get("Referer")
 		if ref == "" {
@@ -146,11 +139,8 @@ func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration
 
 	if !skipLoggingHeaders() {
 		for k, v := range r.Header {
-			if !shouldLogHeader(k) {
-				continue
-			}
-			if len(v) > 0 && len(v[0]) > 0 {
-				rec.Write(k, v[0])
+			if shouldLogHeader(k) && len(v) > 0 {
+				rec.WriteNonEmpty(k, v[0])
 			}
 		}
 	}
@@ -187,4 +177,31 @@ func requestGetRemoteAddress(r *http.Request) string {
 		return parts[0]
 	}
 	return hdrRealIP
+}
+
+// <dir>/httplog-2021-10-06_01.txt.br
+// =>
+//apps/cheatsheet/httplog/2021/10-06/2021-10-06_01.txt.br
+// return "" if <path> is in unexpected format
+func RemotePathFromFilePath(app, path string) string {
+	name := filepath.Base(path)
+	parts := strings.Split(name, "_")
+	if len(parts) != 2 {
+		return ""
+	}
+	// parts[1]: 01.txt.br
+	hr := strings.Split(parts[1], ".")[0]
+	if len(hr) != 2 {
+		return ""
+	}
+	// parts[0]: httplog-2021-10-06
+	parts = strings.Split(parts[0], "-")
+	if len(parts) != 4 {
+		return ""
+	}
+	year := parts[1]
+	month := parts[2]
+	day := parts[3]
+	name = fmt.Sprintf("%s/%s-%s/%s-%s-%s_%s.txt.br", year, month, day, year, month, day, hr)
+	return fmt.Sprintf("apps/%s/httplog/%s", app, name)
 }
