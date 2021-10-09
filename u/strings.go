@@ -43,3 +43,10 @@ func Capitalize(s string) string {
 	s = strings.ToLower(s)
 	return strings.ToUpper(s[0:1]) + s[1:]
 }
+
+// TrimPrefix is like strings.TrimPrefix but also returns a bool
+// indicating that the string was trimmed
+func TrimPrefix(s string, prefix string) (string, bool) {
+	s2 := strings.TrimPrefix(s, prefix)
+	return s2, len(s) != len(s2)
+}
