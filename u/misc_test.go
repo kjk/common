@@ -6,26 +6,36 @@ import (
 	"github.com/kjk/common/assert"
 )
 
-func TestUrlify(t *testing.T) {
-	tests := []struct {
-		s    string
-		sExp string
-	}{
-		{
-			s:    "Laws of marketing #22 (resources) ",
-			sExp: "laws-of-marketing-22-resources",
-		},
-		{
-			s:    "t  -_",
-			sExp: "t-_",
-		},
-		{
-			s:    "foo.htML  ",
-			sExp: "foo.html",
-		},
+func TestSlug(t *testing.T) {
+	tests := []string{
+		"Laws of marketing #22 (resources) ",
+		"laws-of-marketing-22-resources",
+
+		"t  -_",
+		"t-_",
+
+		"foo.htML  ",
+		"foo.html",
 	}
-	for _, test := range tests {
-		sGot := Slug(test.s)
-		assert.Equal(t, test.sExp, sGot)
+	for i := 0; i < len(tests); i += 2 {
+		got := Slug(tests[i])
+		assert.Equal(t, tests[i+1], got)
+	}
+}
+
+func TestSlugNoLowerCase(t *testing.T) {
+	tests := []string{
+		"Laws of marketing #22 (resources) ",
+		"Laws-of-marketing-22-resources",
+
+		"t  -_",
+		"t-_",
+
+		"foo.HTML  ",
+		"foo.HTML",
+	}
+	for i := 0; i < len(tests); i += 2 {
+		got := SlugNoLowerCase(tests[i])
+		assert.Equal(t, tests[i+1], got)
 	}
 }

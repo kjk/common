@@ -106,12 +106,29 @@ func MimeTypeFromFileName(path string) string {
 
 // Slug generates safe url from string by removing hazardous characters
 func Slug(s string) string {
+	return slug(s, true)
+}
+
+func SlugNoLowerCase(s string) string {
+	return slug(s, false)
+}
+
+func slug(s string, lowerCase bool) string {
 	// whitelisted characters valid in url
-	validateRune := func(c rune) byte {
+	isAlpha := func(c rune) bool {
 		if c >= 'a' && c <= 'z' {
-			return byte(c)
+			return true
+		}
+		if c >= 'A' && c <= 'Z' {
+			return true
 		}
 		if c >= '0' && c <= '9' {
+			return true
+		}
+		return false
+	}
+	toValid := func(c rune) byte {
+		if isAlpha(c) {
 			return byte(c)
 		}
 		if c == '-' || c == '_' || c == '.' {
@@ -124,20 +141,16 @@ func Slug(s string) string {
 	}
 
 	charCanRepeat := func(c byte) bool {
-		if c >= 'a' && c <= 'z' {
-			return true
-		}
-		if c >= '0' && c <= '9' {
-			return true
-		}
-		return false
+		return isAlpha(rune(c))
 	}
 
 	s = strings.TrimSpace(s)
-	s = strings.ToLower(s)
+	if lowerCase {
+		s = strings.ToLower(s)
+	}
 	var res []byte
 	for _, r := range s {
-		c := validateRune(r)
+		c := toValid(r)
 		if c == 0 {
 			continue
 		}
