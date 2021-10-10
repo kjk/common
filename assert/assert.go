@@ -184,6 +184,16 @@ func Nil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
 	return Fail(t, fmt.Sprintf("Expected nil, but got: %#v", object), msgAndArgs...)
 }
 
+// NotNil asserts that the specified object is not nil.
+//
+//    assert.NotNil(t, err)
+func NotNil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
+	if !isNil(object) {
+		return true
+	}
+	return Fail(t, "Expected value not to be nil.", msgAndArgs...)
+}
+
 // labeledOutput returns a string consisting of the provided labeledContent. Each labeled output is appended in the following manner:
 //
 //   \t{{label}}:{{align_spaces}}\t{{content}}\n
@@ -273,7 +283,6 @@ func Error(t TestingT, err error, msgAndArgs ...interface{}) bool {
 	if err == nil {
 		return Fail(t, "An error is expected but got nil.", msgAndArgs...)
 	}
-
 	return true
 }
 
@@ -297,9 +306,25 @@ func Equal(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) 
 			"expected: %s\n"+
 			"actual  : %s%s", expected, actual, diff), msgAndArgs...)
 	}
-
 	return true
+}
 
+// NotEqual asserts that the specified values are NOT equal.
+//
+//    assert.NotEqual(t, obj1, obj2)
+//
+// Pointer variable equality is determined based on the equality of the
+// referenced values (as opposed to the memory addresses).
+func NotEqual(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) bool {
+	if err := validateEqualArgs(expected, actual); err != nil {
+		return Fail(t, fmt.Sprintf("Invalid operation: %#v != %#v (%s)",
+			expected, actual, err), msgAndArgs...)
+	}
+
+	if ObjectsAreEqual(expected, actual) {
+		return Fail(t, fmt.Sprintf("Should not be: %#v\n", actual), msgAndArgs...)
+	}
+	return true
 }
 
 // validateEqualArgs checks whether provided arguments can be safely used in the
