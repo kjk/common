@@ -50,3 +50,17 @@ func TrimPrefix(s string, prefix string) (string, bool) {
 	s2 := strings.TrimPrefix(s, prefix)
 	return s2, len(s) != len(s2)
 }
+
+func ToTrimmedLines(d []byte) []string {
+	lines := strings.Split(string(d), "\n")
+	i := 0
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		// remove empty lines
+		if len(l) > 0 {
+			lines[i] = l
+			i++
+		}
+	}
+	return lines[:i]
+}
