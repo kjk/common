@@ -106,6 +106,10 @@ func shouldLogHeader(s string) bool {
 }
 
 func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
+	if l == nil {
+		return nil
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
