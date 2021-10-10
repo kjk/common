@@ -235,7 +235,7 @@ func copyFileChangeMust(dir string, change *gitChange) {
 	case gitStatusModified:
 		copyFileModifiedMust(dirBefore, dirAfter, change)
 	case gitStatusDeleted:
-		copyFileModifiedMust(dirBefore, dirAfter, change)
+		copyFileDeletedMust(dirBefore, dirAfter, change)
 	default:
 		PanicIf(true, "unknown change %+v\n", change)
 	}
