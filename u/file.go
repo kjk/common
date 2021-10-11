@@ -1,10 +1,12 @@
 package u
 
 import (
+	"archive/zip"
 	"bufio"
 	"crypto/sha1"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -105,6 +107,37 @@ func ReadLines(filePath string) ([]string, error) {
 	}
 	if err = scanner.Err(); err != nil {
 		return nil, err
+	}
+	return res, nil
+}
+
+// CloseNoError is like io.Closer Close() but ignores an error
+// use as: defer CloseNoError(f)
+func CloseNoError(f io.Closer) {
+	_ = f.Close()
+}
+
+func ReadZipFile(path string) (map[string][]byte, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer CloseNoError(r)
+	res := map[string][]byte{}
+	for _, f := range r.File {
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		d, err := ioutil.ReadAll(rc)
+		err2 := rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err2 != nil {
+			return nil, err2
+		}
+		res[f.Name] = d
 	}
 	return res, nil
 }
