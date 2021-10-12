@@ -43,3 +43,18 @@ func TestMakeFullRedirectURL(t *testing.T) {
 		assert.Equal(t, exp, got)
 	}
 }
+
+func TestTrimExt(t *testing.T) {
+	tests := []string{
+		"foo.html", "foo",
+		"foo.HTML", "foo",
+		"foo", "foo",
+		"foo.html.txt", "foo.html",
+	}
+
+	for i := 0; i < len(tests); i += 2 {
+		exp := tests[i+1]
+		got := trimExt(tests[i])
+		assert.Equal(t, exp, got)
+	}
+}

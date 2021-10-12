@@ -511,6 +511,14 @@ func hasExtFold(s string, ext string) bool {
 	return strings.EqualFold(e, ext)
 }
 
+func trimExt(s string) string {
+	idx := strings.LastIndex(s, ".")
+	if idx == -1 {
+		return s
+	}
+	return s[:idx]
+}
+
 func MakeFullRedirectURL(path string, reqURL *url.URL) string {
 	// TODO: could verify that path is really a path
 	// and doesn't have query / fragment
@@ -541,6 +549,7 @@ func (s *Server) FindHandler(uri string) (h HandlerFunc, is404 bool) {
 	}
 	if h = s.FindHandlerExact(uri); h != nil {
 		if s.ForceCleanURLS && hasExtFold(uri, ".html") {
+			uri = trimExt(uri)
 			h = makePermRedirect(uri)
 		}
 		return
