@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,9 +23,12 @@ import (
 
 // Server represents all files known to the server
 type Server struct {
-	Handlers  []Handler
+	Port     int
+	Handlers []Handler
+	// if true supports clean urls i.e. /foo will match /foo.html URL
 	CleanURLS bool
-	Port      int
+	// if true forces clean urls i.e. /foo.html will redirect to /foo
+	ForceCleanURLS bool
 }
 
 type HandlerFunc = func(w http.ResponseWriter, r *http.Request)
@@ -500,16 +504,50 @@ func Gen404Candidates(uri string) []string {
 	return res
 }
 
+// returns true if s ends with extension (e.g. ".html")
+// case-insensitive
+func hasExtFold(s string, ext string) bool {
+	e := filepath.Ext(s)
+	return strings.EqualFold(e, ext)
+}
+
+func MakeFullRedirectURL(path string, reqURL *url.URL) string {
+	// TODO: could verify that path is really a path
+	// and doesn't have query / fragment
+	if reqURL.RawQuery != "" {
+		path = path + "?" + reqURL.RawQuery
+	}
+	if reqURL.Fragment != "" {
+		path = path + "#" + reqURL.EscapedFragment()
+	}
+	return path
+}
+
+func permRedirectTo(w http.ResponseWriter, r *http.Request, uri string) {
+	uri = MakeFullRedirectURL(uri, r.URL)
+	http.Redirect(w, r, uri, http.StatusMovedPermanently) // 301
+}
+
+func makePermRedirect(uri string) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		permRedirectTo(w, r, uri)
+	}
+}
+
 func (s *Server) FindHandler(uri string) (h HandlerFunc, is404 bool) {
 	is404 = false
 	if strings.HasSuffix(uri, "/") {
 		uri = path.Join(uri, "/index.html")
 	}
 	if h = s.FindHandlerExact(uri); h != nil {
+		if s.ForceCleanURLS && hasExtFold(uri, ".html") {
+			h = makePermRedirect(uri)
+		}
 		return
 	}
+
 	// if we support clean urls, try find "/foo.html" for "/foo"
-	if s.CleanURLS && !commonExt(uri) {
+	if (s.CleanURLS || s.ForceCleanURLS) && !commonExt(uri) {
 		if h = s.FindHandlerExact(uri + ".html"); h != nil {
 			return
 		}

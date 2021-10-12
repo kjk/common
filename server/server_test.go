@@ -1,8 +1,11 @@
 package server
 
 import (
+	"net/url"
 	"reflect"
 	"testing"
+
+	"github.com/kjk/common/assert"
 )
 
 func TestGen404Candidates(t *testing.T) {
@@ -21,5 +24,22 @@ func TestGen404Candidates(t *testing.T) {
 		if !reflect.DeepEqual(exp, got) {
 			t.Errorf("uri: '%s', got: %v, exp: %v\n", uri, got, exp)
 		}
+	}
+}
+
+func TestMakeFullRedirectURL(t *testing.T) {
+	tests := []string{
+		"/foo.html#me;him", "/bar", "/bar#me;him",
+		"/foo.html", "/bar", "/bar",
+		"/foo.html?me=him", "/bar", "/bar?me=him",
+		"/foo.html?me=him#me", "/bar", "/bar?me=him#me",
+	}
+	for i := 0; i < len(tests); i += 3 {
+		u, err := url.Parse(tests[i])
+		assert.NoError(t, err)
+		path := tests[i+1]
+		exp := tests[i+2]
+		got := MakeFullRedirectURL(path, u)
+		assert.Equal(t, exp, got)
 	}
 }
