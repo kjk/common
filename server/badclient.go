@@ -22,7 +22,6 @@ var (
 		"/admin/controller/extension/extension/": true,
 		"/sites/default/files/":                  true,
 		"/.well-known/":                          true,
-		"/.env":                                  true,
 	}
 	badClientsContains = []string{
 		"/wp-login.php",
@@ -30,6 +29,19 @@ var (
 		"/xmlrpc.php",
 		"/wp-admin",
 		"/wp-content/",
+		".env",
+		".git/index",
+		"id_rsa",
+		"id_dsa",
+		"/etc/passwd",
+	}
+	badClientSuffix = []string{
+		".bak",
+		".sql",
+		".key",
+		".pem",
+		".sqlite",
+		".db",
 	}
 	badClientsRandomData []byte
 )
@@ -55,6 +67,11 @@ func TryServeBadClient(w http.ResponseWriter, r *http.Request) bool {
 	isBadClient := func(uri string) bool {
 		if badClients[uri] {
 			return true
+		}
+		for _, s := range badClientSuffix {
+			if strings.HasSuffix(uri, s) {
+				return true
+			}
 		}
 		for _, s := range badClientsContains {
 			if strings.Contains(uri, s) {
