@@ -1,6 +1,9 @@
 package u
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // NormalizeNewlinesInPlace changes CRLF (Windows) and
 // CR (Mac) to LF (Unix)
@@ -63,4 +66,20 @@ func ToTrimmedLines(d []byte) []string {
 		}
 	}
 	return lines[:i]
+}
+
+// TrimExt removes extension from s
+func TrimExt(s string) string {
+	idx := strings.LastIndex(s, ".")
+	if idx == -1 {
+		return s
+	}
+	return s[:idx]
+}
+
+// ExtEqualFold returns true if s ends with extension (e.g. ".html")
+// case-insensitive
+func ExtEqualFold(s string, ext string) bool {
+	e := filepath.Ext(s)
+	return strings.EqualFold(e, ext)
 }

@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,6 +18,8 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
+	"github.com/kjk/common/httputil"
+	"github.com/kjk/common/u"
 )
 
 // Server represents all files known to the server
@@ -504,41 +505,9 @@ func Gen404Candidates(uri string) []string {
 	return res
 }
 
-// returns true if s ends with extension (e.g. ".html")
-// case-insensitive
-func hasExtFold(s string, ext string) bool {
-	e := filepath.Ext(s)
-	return strings.EqualFold(e, ext)
-}
-
-func trimExt(s string) string {
-	idx := strings.LastIndex(s, ".")
-	if idx == -1 {
-		return s
-	}
-	return s[:idx]
-}
-
-func MakeFullRedirectURL(path string, reqURL *url.URL) string {
-	// TODO: could verify that path is really a path
-	// and doesn't have query / fragment
-	if reqURL.RawQuery != "" {
-		path = path + "?" + reqURL.RawQuery
-	}
-	if reqURL.Fragment != "" {
-		path = path + "#" + reqURL.EscapedFragment()
-	}
-	return path
-}
-
-func permRedirectTo(w http.ResponseWriter, r *http.Request, uri string) {
-	uri = MakeFullRedirectURL(uri, r.URL)
-	http.Redirect(w, r, uri, http.StatusMovedPermanently) // 301
-}
-
 func makePermRedirect(uri string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		permRedirectTo(w, r, uri)
+		httputil.SmartPermanentRedirect(w, r, uri)
 	}
 }
 
@@ -548,8 +517,8 @@ func (s *Server) FindHandler(uri string) (h HandlerFunc, is404 bool) {
 		uri = path.Join(uri, "/index.html")
 	}
 	if h = s.FindHandlerExact(uri); h != nil {
-		if s.ForceCleanURLS && hasExtFold(uri, ".html") {
-			uri = trimExt(uri)
+		if s.ForceCleanURLS && u.ExtEqualFold(uri, ".html") {
+			uri = u.TrimExt(uri)
 			h = makePermRedirect(uri)
 		}
 		return

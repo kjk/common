@@ -21,6 +21,23 @@ func TestTrimPrefix(t *testing.T) {
 	}
 }
 
+func TestTrimExt(t *testing.T) {
+	tests := []string{
+		"foo", "foo",
+		"foo.html", "foo",
+		"foo.", "foo",
+		"foo.html.txt", "foo.html",
+	}
+
+	n := len(tests)
+	for i := 0; i < n; i += 2 {
+		got := TrimExt(tests[i])
+		exp := tests[i+1]
+		assert.Equal(t, exp, got)
+		assert.Equal(t, exp, got, "%#v, %#v", tests[i], tests[i+1])
+	}
+}
+
 func TestCapitalize(t *testing.T) {
 	tests := []struct {
 		s   string

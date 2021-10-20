@@ -8,9 +8,12 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/kjk/common/u"
 )
 
 // can be used for http.Get() requests with better timeouts. New one must be created
@@ -116,4 +119,27 @@ func JoinURL(s1, s2 string) string {
 		return s1 + s2
 	}
 	return s1 + "/" + s2
+}
+
+func MakeFullRedirectURL(path string, reqURL *url.URL) string {
+	// TODO: could verify that path is really a path
+	// and doesn't have query / fragment
+	if reqURL.RawQuery != "" {
+		path = path + "?" + reqURL.RawQuery
+	}
+	if reqURL.Fragment != "" {
+		path = path + "#" + reqURL.EscapedFragment()
+	}
+	return path
+}
+
+// SmartRedirect redirects to uri but also adds query / fragment from r.URL
+func SmartRedirect(w http.ResponseWriter, r *http.Request, uri string, code int) {
+	u.PanicIf(code < 300 || code >= 400)
+	uri = MakeFullRedirectURL(uri, r.URL)
+	http.Redirect(w, r, uri, code)
+}
+
+func SmartPermanentRedirect(w http.ResponseWriter, r *http.Request, uri string) {
+	SmartRedirect(w, r, uri, http.StatusMovedPermanently) // 301
 }
