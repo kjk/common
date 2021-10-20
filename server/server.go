@@ -4,22 +4,22 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/flate"
-	"fmt"
 	"io"
 	"io/fs"
 	"io/ioutil"
-	"mime"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/andybalholm/brotli"
 	"github.com/kjk/common/httputil"
 	"github.com/kjk/common/u"
+)
+
+var (
+	must = u.Must
 )
 
 // Server represents all files known to the server
@@ -45,28 +45,8 @@ type Handler interface {
 	URLS() []string
 }
 
-func panicIf(cond bool, arg ...interface{}) {
-	if !cond {
-		return
-	}
-	s := "condition failed"
-	if len(arg) > 0 {
-		s = fmt.Sprintf("%s", arg[0])
-		if len(arg) > 1 {
-			s = fmt.Sprintf(s, arg[1:]...)
-		}
-	}
-	panic(s)
-}
-
-func must(err error) {
-	if err != nil {
-		panic(err.Error())
-	}
-}
-
 func panicIfAbsoluteURL(uri string) {
-	panicIf(strings.Contains(uri, "://"), "got absolute url '%s'", uri)
+	u.PanicIf(strings.Contains(uri, "://"), "got absolute url '%s'", uri)
 }
 
 func readFileMust(path string) []byte {
@@ -101,112 +81,6 @@ func (w *FileWriter) WriteHeader(statusCode int) {
 	// no-op
 }
 
-var (
-	serveFileMu sync.Mutex
-)
-
-func compressBr(path string, pathBr string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	dst, err := os.Create(pathBr)
-	if err != nil {
-		return err
-	}
-	w := brotli.NewWriterLevel(dst, brotli.BestCompression)
-	_, err = io.Copy(w, f)
-	err2 := w.Close()
-	err3 := dst.Close()
-
-	if err != nil || err2 != nil || err3 != nil {
-		os.Remove(pathBr)
-		if err != nil {
-			return err
-		}
-		if err2 != nil {
-			return err2
-		}
-		return err3
-	}
-	return nil
-}
-
-func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, path string) bool {
-	if r == nil {
-		return false
-	}
-	enc := r.Header.Get("Accept-Encoding")
-	// fmt.Printf("serveFileMaybeBr: enc: '%s'\n", enc)
-	if !strings.Contains(enc, "br") {
-		// fmt.Printf("serveFileMaybeBr: doesn't accept 'br'\n")
-		return false
-	}
-	pathBr := path + ".br"
-	// fmt.Printf("serveFileMaybeBr: '%s', '%s'\n", path, pathBr)
-	if !fileExists(pathBr) {
-		if !fileExists(path) {
-			// fmt.Printf("serveFileMaybeBr: '%s' not found\n", path)
-			http.NotFound(w, r)
-			return true
-		}
-		serveFileMu.Lock()
-		err := compressBr(path, pathBr)
-		// fmt.Printf("serveFileMaybeBr: compressBr('%s', '%s'), err: %v\n", path, pathBr, err)
-		serveFileMu.Unlock()
-		if err != nil {
-			return false
-		}
-	}
-	f, err := os.Open(pathBr)
-	if err != nil {
-		// fmt.Printf("serveFileMaybeBr: os.Open('%s') failed with err: %v\n", pathBr, err)
-		return false
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		// fmt.Printf("serveFileMaybeBr: f.Stat() '%s' failed with err: %v\n", pathBr, err)
-		return false
-	}
-	// https://www.maxcdn.com/blog/accept-encoding-its-vary-important/
-	// prevent caching non-gzipped version
-	w.Header().Add("Vary", "Accept-Encoding")
-	w.Header().Set("Content-Encoding", "br")
-	http.ServeContent(w, r, path, st.ModTime(), f)
-	// fmt.Printf("serveFileMaybeBr: served '%s'\n", pathBr)
-	return true
-}
-
-func canServeCompressed(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".html", ".txt", ".css", ".js", ".xml":
-		return true
-	}
-	return false
-}
-
-func serveFileMust(w http.ResponseWriter, r *http.Request, path string, tryServeCompressed bool) {
-	// fmt.Printf("serveFileMust: '%s'\n", path)
-	if r == nil {
-		// fmt.Printf("serveFileMust: wrote '%s' to w because r is nil\n", path)
-		d := readFileMust(path)
-		_, err := w.Write(d)
-		must(err)
-		return
-	}
-	if tryServeCompressed && canServeCompressed(path) {
-		if serveFileMaybeBr(w, r, path) {
-			return
-		}
-		// TODO: maybe add serveFileMaybeGz
-		// but then again modern browsers probably support br
-	}
-	http.ServeFile(w, r, path)
-}
-
 // d can be nil, in which case no caching
 func serve404FileCached(w http.ResponseWriter, r *http.Request, path string, cached *[]byte) {
 	var d []byte
@@ -220,7 +94,8 @@ func serve404FileCached(w http.ResponseWriter, r *http.Request, path string, cac
 			*cached = d
 		}
 	}
-	ctype := mime.TypeByExtension(filepath.Ext(path))
+
+	ctype := u.MimeTypeFromFileName(path)
 	if ctype != "" {
 		w.Header().Set("Content-Type", ctype)
 	}
@@ -236,7 +111,15 @@ func makeServeFile(path string, tryServeCompressed bool) func(w http.ResponseWri
 			serve404FileCached(w, r, path, nil)
 			return
 		}
-		serveFileMust(w, r, path, tryServeCompressed)
+		dir := filepath.Dir(path)
+		name := filepath.Base(path)
+		opts := httputil.ServeFileOptions{
+			Dir:             dir,
+			ServeCompressed: tryServeCompressed,
+		}
+		if !httputil.TryServeFileFromURL(w, r, name, &opts) {
+			http.ServeFile(w, r, path)
+		}
 	}
 }
 
@@ -264,7 +147,7 @@ type FilesHandler struct {
 
 func (h *FilesHandler) AddFile(uri, path string) {
 	panicIfAbsoluteURL(uri)
-	panicIf(!fileExists(path), "file '%s' doesn't exist", path)
+	u.PanicIf(!fileExists(path), "file '%s' doesn't exist", path)
 	h.files[uri] = path
 }
 
@@ -296,7 +179,7 @@ func (h *FilesHandler) URLS() []string {
 
 // files is: uri1, path1, uri2, path2, ...
 func NewFilesHandler(files ...string) *FilesHandler {
-	panicIf(len(files)%2 == 1)
+	u.PanicIf(len(files)%2 == 1)
 	n := len(files)
 	h := &FilesHandler{
 		files: map[string]string{},
@@ -408,7 +291,7 @@ func (h *InMemoryFilesHandler) Add(uri string, body []byte) {
 	panicIfAbsoluteURL(uri)
 	// in case uri is a windows path, convert to unix path
 	uri = strings.Replace(uri, "\\", "/", -1)
-	panicIf(!strings.HasPrefix(uri, "/"))
+	u.PanicIf(!strings.HasPrefix(uri, "/"))
 	h.files[uri] = body
 }
 
@@ -435,7 +318,7 @@ func IterURLS(handlers []Handler, withContent bool, fn func(uri string, d []byte
 				w: &buf,
 			}
 			serve := h.Get(uri)
-			panicIf(serve == nil, "must have a handler for '%s'", uri)
+			u.PanicIf(serve == nil, "must have a handler for '%s'", uri)
 			serve(fw, nil)
 			fn(uri, buf.Bytes())
 		}
@@ -445,22 +328,6 @@ func IterURLS(handlers []Handler, withContent bool, fn func(uri string, d []byte
 // IterContent calls a function for every url and its content
 func IterContent(handlers []Handler, fn func(uri string, d []byte)) {
 	IterURLS(handlers, true, fn)
-}
-
-type CapturingResponseWriter struct {
-	http.ResponseWriter
-	StatusCode int
-	Size       int64
-}
-
-func (w *CapturingResponseWriter) WriteHeader(statusCode int) {
-	w.StatusCode = statusCode
-	w.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (w *CapturingResponseWriter) Write(d []byte) (int, error) {
-	w.Size += int64(len(d))
-	return w.ResponseWriter.Write(d)
 }
 
 func (s *Server) FindHandlerExact(uri string) HandlerFunc {

@@ -24,23 +24,26 @@ type ServeFileOptions struct {
 }
 
 func TryServeFile(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions) bool {
-	uriPath := r.URL.Path
+	urlPath := r.URL.Path
+	return TryServeFileFromURL(w, r, urlPath, opts)
+}
 
+func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string, opts *ServeFileOptions) bool {
 	if opts.ForceCleanURLS {
-		ext := filepath.Ext(uriPath)
+		ext := filepath.Ext(urlPath)
 		if strings.EqualFold(ext, ".html") {
-			path := filepath.Join(opts.Dir, uriPath)
+			path := filepath.Join(opts.Dir, urlPath)
 			if u.FileExists(path) {
-				uriPath = uriPath[:len(uriPath)-len(ext)]
-				SmartPermanentRedirect(w, r, uriPath)
+				urlPath = urlPath[:len(urlPath)-len(ext)]
+				SmartPermanentRedirect(w, r, urlPath)
 				return true
 			}
 		}
 	}
-	if uriPath == "/" {
-		uriPath = "index.html"
+	if urlPath == "/" {
+		urlPath = "index.html"
 	}
-	path := filepath.Join(opts.Dir, uriPath)
+	path := filepath.Join(opts.Dir, urlPath)
 	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
 	if !u.FileExists(path) && cleanURLS {
 		path = path + ".html"
