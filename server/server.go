@@ -6,7 +6,6 @@ import (
 	"compress/flate"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -19,7 +18,8 @@ import (
 )
 
 var (
-	must = u.Must
+	must       = u.Must
+	fileExists = u.FileExists
 )
 
 // Server represents all files known to the server
@@ -47,17 +47,6 @@ type Handler interface {
 
 func panicIfAbsoluteURL(uri string) {
 	u.PanicIf(strings.Contains(uri, "://"), "got absolute url '%s'", uri)
-}
-
-func readFileMust(path string) []byte {
-	d, err := ioutil.ReadFile(path)
-	must(err)
-	return d
-}
-
-func fileExists(path string) bool {
-	st, err := os.Lstat(path)
-	return err == nil && st.Mode().IsRegular()
 }
 
 // FileWriter implements http.ResponseWriter interface for writing to a io.Writer
