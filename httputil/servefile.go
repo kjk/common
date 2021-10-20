@@ -16,14 +16,14 @@ var (
 	serveFileMu sync.Mutex
 )
 
-type FileServeOpts struct {
+type ServeFileOptions struct {
 	Dir              string
 	SupportCleanURLS bool
 	ForceCleanURLS   bool
 	ServeCompressed  bool
 }
 
-func TryServeFile(w http.ResponseWriter, r *http.Request, opts *FileServeOpts) bool {
+func TryServeFile(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions) bool {
 	uriPath := r.URL.Path
 
 	if opts.ForceCleanURLS {
