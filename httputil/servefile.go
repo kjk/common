@@ -52,16 +52,26 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 		}
 	}
 
-	if opts.ServeCompressed && canServeCompressed(path) {
+	if r != nil && opts.ServeCompressed && canServeCompressed(path) {
 		if serveFileMaybeBr(w, r, path) {
 			return true
 		}
 		// TODO: maybe add serveFileMaybeGz
-		// but then again modern browsers probably support br
+		// but then again modern browsers probably support br so that would be redundant
 	}
 	ct := u.MimeTypeFromFileName(path)
 	if ct != "" {
 		w.Header().Set("Content-Type", ct)
+	}
+	if r == nil {
+		// we can be used by server.makeServeFile which doesn't provide http.Request
+		f, err := os.Open(path)
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		_, err = io.Copy(w, f)
+		return err == nil
 	}
 	http.ServeFile(w, r, path)
 	return serveFileMaybeBr(w, r, path)
