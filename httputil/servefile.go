@@ -52,7 +52,7 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 		}
 	}
 
-	if r != nil && opts.ServeCompressed && canServeCompressed(path) {
+	if r != nil && opts.ServeCompressed {
 		if serveFileMaybeBr(w, r, path) {
 			return true
 		}
@@ -78,16 +78,17 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	return true
 }
 
-func canServeCompressed(path string) bool {
+func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".html", ".txt", ".css", ".js", ".xml":
-		return true
+	case ".html", ".txt", ".css", ".js", ".xml", ".svg":
+		// no-op those we serve compressed
+	default:
+		// other formats, e.g. png, should not be served compressed
+		// fmt.Printf("serveFileMaybeBr: skipping because '%s' not served as br because '%s' should not be served compressed\n", path, ext)
+		return false
 	}
-	return false
-}
 
-func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, path string) bool {
 	if r == nil {
 		return false
 	}
