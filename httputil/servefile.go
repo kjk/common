@@ -65,6 +65,7 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	}
 	if r == nil {
 		// we can be used by server.makeServeFile which doesn't provide http.Request
+		// in that case w is a file
 		f, err := os.Open(path)
 		if err != nil {
 			return false
@@ -74,7 +75,7 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 		return err == nil
 	}
 	http.ServeFile(w, r, path)
-	return serveFileMaybeBr(w, r, path)
+	return true
 }
 
 func canServeCompressed(path string) bool {
