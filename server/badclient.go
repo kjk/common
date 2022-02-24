@@ -35,6 +35,12 @@ var (
 		"id_dsa",
 		"/etc/passwd",
 	}
+	badClientPrefix = []string{
+		"/plus/",
+		"/index.php",
+		"/?-",
+		"/index?-",
+	}
 	badClientSuffix = []string{
 		".bak",
 		".sql",
@@ -70,6 +76,11 @@ func TryServeBadClient(w http.ResponseWriter, r *http.Request) bool {
 		}
 		for _, s := range badClientSuffix {
 			if strings.HasSuffix(uri, s) {
+				return true
+			}
+		}
+		for _, s := range badClientPrefix {
+			if strings.HasPrefix(uri, s) {
 				return true
 			}
 		}
