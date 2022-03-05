@@ -18,8 +18,7 @@ import (
 )
 
 var (
-	must       = u.Must
-	fileExists = u.FileExists
+	must = u.Must
 )
 
 // Server represents all files known to the server
@@ -136,7 +135,7 @@ type FilesHandler struct {
 
 func (h *FilesHandler) AddFile(uri, path string) {
 	panicIfAbsoluteURL(uri)
-	u.PanicIf(!fileExists(path), "file '%s' doesn't exist", path)
+	u.PanicIf(!u.FileExists(path), "file '%s' doesn't exist", path)
 	h.files[uri] = path
 }
 
