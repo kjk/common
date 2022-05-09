@@ -15,35 +15,39 @@ the urls come from observing attacks on my websites
 */
 
 var (
+	// exact url matche
 	badClients = map[string]bool{
 		"/images/":                               true,
 		"/files/":                                true,
 		"/uploads/":                              true,
 		"/admin/controller/extension/extension/": true,
 		"/sites/default/files/":                  true,
-		"/.well-known/":                          true,
 		"/media-admin.php":                       true,
 		"/wp-booking.php":                        true,
 		"/templates/beez3/ALFA_DATA":             true,
 	}
+	// if url contains
 	badClientsContains = []string{
 		"/wp-login.php",
 		"/wp-includes/wlwmanifest.xml",
 		"/xmlrpc.php",
-		"/wp-admin",
-		"/wp-content/",
 		".env",
 		".git/index",
 		"id_rsa",
 		"id_dsa",
 		"/etc/passwd",
 	}
+	// if url starts with
 	badClientPrefix = []string{
+		"/wp-admin",
+		"/wp-content/",
+		"/.well-known/",
 		"/plus/",
 		"/index.php",
 		"/?-",
 		"/index?-",
 	}
+	// if url ends with
 	badClientSuffix = []string{
 		".bak",
 		".sql",
