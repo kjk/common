@@ -23,6 +23,7 @@ var (
 		"/sites/default/files/":                  true,
 		"/.well-known/":                          true,
 		"/media-admin.php":                       true,
+		"/wp-booking.php":                        true,
 	}
 	badClientsContains = []string{
 		"/wp-login.php",
