@@ -24,6 +24,7 @@ var (
 		"/.well-known/":                          true,
 		"/media-admin.php":                       true,
 		"/wp-booking.php":                        true,
+		"/templates/beez3/ALFA_DATA":             true,
 	}
 	badClientsContains = []string{
 		"/wp-login.php",
