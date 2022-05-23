@@ -23,7 +23,6 @@ var (
 		"/admin/controller/extension/extension/": true,
 		"/sites/default/files/":                  true,
 		"/media-admin.php":                       true,
-		"/wp-booking.php":                        true,
 		"/templates/beez3/ALFA_DATA":             true,
 	}
 	// if url contains
@@ -39,8 +38,7 @@ var (
 	}
 	// if url starts with
 	badClientPrefix = []string{
-		"/wp-admin",
-		"/wp-content/",
+		"/wp-", // lots
 		"/.well-known/",
 		"/plus/",
 		"/index.php",
