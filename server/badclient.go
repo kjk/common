@@ -17,13 +17,11 @@ the urls come from observing attacks on my websites
 var (
 	// exact url matche
 	badClients = map[string]bool{
-		"/images/":                               true,
-		"/files/":                                true,
-		"/uploads/":                              true,
-		"/admin/controller/extension/extension/": true,
-		"/sites/default/files/":                  true,
-		"/media-admin.php":                       true,
-		"/templates/beez3/ALFA_DATA":             true,
+		"/images/":                   true,
+		"/files/":                    true,
+		"/uploads/":                  true,
+		"/sites/default/files/":      true,
+		"/templates/beez3/ALFA_DATA": true,
 	}
 	// if url contains
 	badClientsContains = []string{
@@ -31,7 +29,6 @@ var (
 		"/wp-includes/wlwmanifest.xml",
 		"/xmlrpc.php",
 		".env",
-		".git/index",
 		"id_rsa",
 		"id_dsa",
 		"/etc/passwd",
@@ -41,9 +38,10 @@ var (
 		"/wp-", // lots
 		"/.well-known/",
 		"/plus/",
-		"/index.php",
 		"/?-",
 		"/index?-",
+		"/.git",
+		"/admin",
 	}
 	// if url ends with
 	badClientSuffix = []string{
@@ -74,8 +72,8 @@ func init() {
 }
 
 // returns true if sent a response to the client
-func TryServeBadClient(w http.ResponseWriter, r *http.Request) bool {
-	isBadClient := func(uri string) bool {
+func TryServeBadClient(w http.ResponseWriter, r *http.Request, isBadURL func(s string) bool) bool {
+	isBad := func(uri string) bool {
 		if badClients[uri] {
 			return true
 		}
@@ -94,9 +92,12 @@ func TryServeBadClient(w http.ResponseWriter, r *http.Request) bool {
 				return true
 			}
 		}
+		if isBadURL != nil {
+			return isBadURL(uri)
+		}
 		return false
 	}
-	if !isBadClient(r.URL.Path) {
+	if !isBad(r.URL.Path) {
 		return false
 	}
 	w.Header().Add("Content-Tyep", "text/html")
