@@ -18,7 +18,7 @@ import (
 
 // can be used for http.Get() requests with better timeouts. New one must be created
 // for each Get() request
-func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
+func NewTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
 	timeoutDialer := func(cTimeout time.Duration, rwTimeout time.Duration) func(net, addr string) (c net.Conn, err error) {
 		return func(netw, addr string) (net.Conn, error) {
 			conn, err := net.DialTimeout(netw, addr, cTimeout)
@@ -38,8 +38,12 @@ func newTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Durati
 	}
 }
 
+func NewDefaultTimeoutClient() *http.Client {
+	return NewTimeoutClient(time.Second*120, time.Second*120)
+}
+
 func Get(uri string) ([]byte, error) {
-	c := newTimeoutClient(time.Second*120, time.Second*120)
+	c := NewDefaultTimeoutClient()
 	resp, err := c.Get(uri)
 	if err != nil {
 		return nil, err
@@ -51,8 +55,22 @@ func Get(uri string) ([]byte, error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
+func GetToFile(uri string, f *os.File) error {
+	c := NewDefaultTimeoutClient()
+	resp, err := c.Get(uri)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("'%s': status code not 200 (%d)", uri, resp.StatusCode)
+	}
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
 func Post(uri string, body []byte) ([]byte, error) {
-	c := newTimeoutClient(time.Second*120, time.Second*120)
+	c := NewDefaultTimeoutClient()
 	resp, err := c.Post(uri, "", bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
@@ -95,7 +113,7 @@ func PostMultiPart(uri string, files map[string]string) ([]byte, error) {
 	}
 	// default timeout for http.Get() is really long, so dial it down
 	// for both connection and read/write timeouts
-	timeoutClient := newTimeoutClient(time.Second*120, time.Second*120)
+	timeoutClient := NewTimeoutClient(time.Second*120, time.Second*120)
 	resp, err := timeoutClient.Post(uri, contentType, body)
 	if err != nil {
 		return nil, err
