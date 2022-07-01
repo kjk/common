@@ -27,7 +27,7 @@ func NewLineStats() *LineStats {
 	}
 }
 
-func statsPerExt(fileToCount map[string]*LineCount) []*LineCount {
+func LineStatsPerExt(fileToCount map[string]*LineCount) []*LineCount {
 	extToCount := map[string]*LineCount{}
 	for _, wc := range fileToCount {
 		ext := wc.Ext
@@ -179,7 +179,7 @@ func PrintLineStats(stats *LineStats) {
 		total += wc.LineCount
 	}
 	fmt.Printf("\nPer extension:\n")
-	wcPerExt := statsPerExt(stats.FileToCount)
+	wcPerExt := LineStatsPerExt(stats.FileToCount)
 	for _, wc := range wcPerExt {
 		fmt.Printf("%d %s\n", wc.LineCount, wc.Ext)
 	}
