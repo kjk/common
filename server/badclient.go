@@ -36,7 +36,6 @@ var (
 	// if url starts with
 	badClientPrefix = []string{
 		"/wp-", // lots
-		"/.well-known/",
 		"/plus/",
 		"/?-",
 		"/index?-",
