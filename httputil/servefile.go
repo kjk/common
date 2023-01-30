@@ -40,9 +40,10 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 			}
 		}
 	}
-	if urlPath == "/" {
-		urlPath = "index.html"
+	if strings.HasSuffix(urlPath, "/") {
+		urlPath += "index.html"
 	}
+	// TODO: maybe also resolve /foo into /foo/index.html ?
 	path := filepath.Join(opts.Dir, urlPath)
 	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
 	if !u.FileExists(path) && cleanURLS {
