@@ -12,6 +12,13 @@ func Must(err error) {
 	}
 }
 
+func Must2[T any](x T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return x
+}
+
 func PanicIf(cond bool, args ...interface{}) {
 	if !cond {
 		return
