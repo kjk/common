@@ -156,6 +156,9 @@ func ZipDirToWriter(w io.Writer, dirToZip string) error {
 		defer toZipReader.Close()
 
 		zipName := pathToZip[len(dirToZip)+1:] // +1 for '/' in the path
+		// per zip.Writer.Create(), name must be slash-separated so on Windows
+		// we have to convert backslashes to slashes
+		zipName = filepath.ToSlash(zipName)
 		inZipWriter, err := zw.Create(zipName)
 		if err != nil {
 			//fmt.Printf("Error in zipWriter(): %s\n", err.Error())
@@ -267,4 +270,49 @@ func CreateZipFile(dst string, baseDir string, toZip ...string) {
 	}
 	err = zw.Close()
 	Must(err)
+}
+
+func UnzipDataToDir(zipData []byte, dir string) error {
+	writeFile := func(f *zip.File, data []byte) error {
+		path := filepath.Join(dir, f.Name)
+		os.MkdirAll(filepath.Dir(path), 0755)
+		err := os.WriteFile(path, data, 0644)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	IterZipData(zipData, writeFile)
+	return nil
+}
+
+func IterZipReader(r *zip.Reader, cb func(f *zip.File, data []byte) error) error {
+	for _, f := range r.File {
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		d, err := io.ReadAll(rc)
+		err2 := rc.Close()
+		if err != nil {
+			return err
+		}
+		if err2 != nil {
+			return err2
+		}
+		err = cb(f, d)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func IterZipData(zipData []byte, cb func(f *zip.File, data []byte) error) error {
+	dr := bytes.NewReader(zipData)
+	r, err := zip.NewReader(dr, int64(len(zipData)))
+	if err != nil {
+		return err
+	}
+	return IterZipReader(r, cb)
 }
