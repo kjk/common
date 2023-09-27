@@ -3,7 +3,6 @@ package u
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,14 +253,15 @@ func gitCopyFiles(dir string, changes []*gitChange) {
 
 // delete directories older than 1 day in tempDir
 func deleteOldDirs() {
-	files, err := ioutil.ReadDir(tempDir)
+	files, err := os.ReadDir(tempDir)
 	must(err)
 	for _, fi := range files {
 		if !fi.IsDir() {
 			// we shouldn't create anything but dirs
 			continue
 		}
-		age := time.Since(fi.ModTime())
+		info, _ := fi.Info()
+		age := time.Since(info.ModTime())
 		path := filepath.Join(tempDir, fi.Name())
 		if age > time.Hour*24 {
 			fmt.Printf("Deleting %s because older than 1 day\n", path)
@@ -274,7 +274,7 @@ func deleteOldDirs() {
 }
 
 func hasGitDirMust(dir string) bool {
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	must(err)
 	for _, fi := range files {
 		if strings.ToLower(fi.Name()) == ".git" {
