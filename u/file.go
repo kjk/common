@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -140,7 +139,7 @@ func ReadZipFile(path string) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		d, err := ioutil.ReadAll(rc)
+		d, err := io.ReadAll(rc)
 		err2 := rc.Close()
 		if err != nil {
 			return nil, err

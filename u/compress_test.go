@@ -3,7 +3,6 @@ package u
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func testGzip(t *testing.T, path string) {
-	d, err := ioutil.ReadFile(path)
+	d, err := os.ReadFile(path)
 	assert.Nil(t, err)
 
 	dstPath := path + ".gz"

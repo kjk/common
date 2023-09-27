@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -73,7 +72,7 @@ func writeCorpus(d []byte) {
 	testNo++
 	name := fmt.Sprintf("test%d.txt", testNo)
 	path := filepath.Join(dir, name)
-	err = ioutil.WriteFile(path, d, 0644)
+	err = os.WriteFile(path, d, 0644)
 	must(err)
 }
 

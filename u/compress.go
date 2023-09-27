@@ -7,7 +7,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,7 +66,7 @@ func ReadFileMaybeCompressed(path string) ([]byte, error) {
 		return nil, err
 	}
 	defer r.Close()
-	return ioutil.ReadAll(r)
+	return io.ReadAll(r)
 }
 
 // WriteFileGzipped writes data to a path, using best gzip compression
@@ -204,7 +203,7 @@ func ReadZipFileMust(path string) map[string][]byte {
 	for _, f := range r.File {
 		rc, err := f.Open()
 		Must(err)
-		d, err := ioutil.ReadAll(rc)
+		d, err := io.ReadAll(rc)
 		Must(err)
 		_ = rc.Close()
 		res[f.Name] = d
@@ -214,7 +213,7 @@ func ReadZipFileMust(path string) map[string][]byte {
 
 func zipAddFile(zw *zip.Writer, zipName string, path string) {
 	zipName = filepath.ToSlash(zipName)
-	d, err := ioutil.ReadFile(path)
+	d, err := os.ReadFile(path)
 	Must(err)
 	w, err := zw.Create(zipName)
 	Must(err)
@@ -225,12 +224,12 @@ func zipAddFile(zw *zip.Writer, zipName string, path string) {
 
 func zipDirRecur(zw *zip.Writer, baseDir string, dirToZip string) {
 	dir := filepath.Join(baseDir, dirToZip)
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	Must(err)
 	for _, fi := range files {
 		if fi.IsDir() {
 			zipDirRecur(zw, baseDir, filepath.Join(dirToZip, fi.Name()))
-		} else if fi.Mode().IsRegular() {
+		} else if fi.Type().IsRegular() {
 			zipName := filepath.Join(dirToZip, fi.Name())
 			path := filepath.Join(baseDir, zipName)
 			zipAddFile(zw, zipName, path)

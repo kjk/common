@@ -2,7 +2,6 @@ package atomicfile
 
 import (
 	"errors"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -149,7 +148,7 @@ func TestWrite(t *testing.T) {
 		assertFileNotExists(t, f.tmpPath)
 	}
 
-	d, err := ioutil.ReadFile("atomic_file.go")
+	d, err := os.ReadFile("atomic_file.go")
 	assertNoError(t, err)
 
 	{

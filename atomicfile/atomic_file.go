@@ -3,7 +3,6 @@ package atomicfile
 import (
 	"errors"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -44,7 +43,7 @@ func New(path string) (*File, error) {
 		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
 	}
 
-	tmpFile, err := ioutil.TempFile(dir, fName)
+	tmpFile, err := os.CreateTemp(dir, fName)
 	if err != nil {
 		return nil, err
 	}

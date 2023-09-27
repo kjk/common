@@ -2,7 +2,6 @@ package pak
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -29,7 +28,7 @@ type test struct {
 func mkFile(path string) *test {
 	size, err := getFileSize(path)
 	must(err)
-	d, err := ioutil.ReadFile(path)
+	d, err := os.ReadFile(path)
 	must(err)
 	return &test{
 		isFile: true,
@@ -124,13 +123,13 @@ func TestWriteRead(t *testing.T) {
 	tests[1].tp = "sum file"
 	tests[2].pathOverride = "LICENSE.overwritten"
 
-	files, err := ioutil.ReadDir(".")
+	files, err := os.ReadDir(".")
 	assert.NoError(t, err)
 	for _, fi := range files {
-		if !fi.Mode().IsRegular() {
+		if !fi.Type().IsRegular() {
 			continue
 		}
-		d, err := ioutil.ReadFile(fi.Name())
+		d, err := os.ReadFile(fi.Name())
 		must(err)
 		test := mkData(d, fi.Name()+".data")
 		tests = append(tests, test)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -52,7 +51,7 @@ func Get(uri string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("'%s': status code not 200 (%d)", uri, resp.StatusCode)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func GetToFile(uri string, f *os.File) error {
@@ -79,7 +78,7 @@ func Post(uri string, body []byte) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("'%s': status code not 200 (%d)", uri, resp.StatusCode)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func createMultiPartForm(form map[string]string) (string, io.Reader, error) {
@@ -122,7 +121,7 @@ func PostMultiPart(uri string, files map[string]string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("'%s': status code not 200 (%d)", uri, resp.StatusCode)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func JoinURL(s1, s2 string) string {

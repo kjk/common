@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"time"
@@ -65,7 +64,7 @@ func (w *Writer) AddFile(path string, meta Metadata) error {
 	// TODO: an option that preserves memory i.e. doesn't keep
 	// data in memory. It'll be slower because it'll have to
 	// read files twice
-	d, err := ioutil.ReadFile(path)
+	d, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -178,7 +177,7 @@ func (w *Writer) Write(wr io.Writer) (err error) {
 	for _, e := range w.Entries {
 		d := e.data
 		if d == nil && e.srcFilePath != "" {
-			d2, err := ioutil.ReadFile(e.srcFilePath)
+			d2, err := os.ReadFile(e.srcFilePath)
 			if err != nil {
 				return err
 			}

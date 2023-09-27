@@ -2,7 +2,7 @@ package u
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -115,7 +115,7 @@ func MakeFilterAnd(filters ...FilterFunc) FilterFunc {
 
 // FileLineCount returns number of lines in a file
 func FileLineCount(path string) (int, error) {
-	d, err := ioutil.ReadFile(path)
+	d, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err
 	}
@@ -134,7 +134,7 @@ func FileLineCount(path string) (int, error) {
 }
 
 func (s *LineStats) CalcInDir(dir string, allowedFileFilter func(name string) bool, recur bool) error {
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (s *LineStats) CalcInDir(dir string, allowedFileFilter func(name string) bo
 			}
 			continue
 		}
-		if !fi.Mode().IsRegular() {
+		if !fi.Type().IsRegular() {
 			continue
 		}
 		if !allowedFileFilter(path) {
