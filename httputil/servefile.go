@@ -45,6 +45,9 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	if strings.HasSuffix(urlPath, "/") {
 		urlPath += "index.html"
 	}
+	// for fs.FS paths cannot start with "/"
+	urlPath = strings.TrimPrefix(urlPath, "/")
+
 	// TODO: maybe also resolve /foo into /foo/index.html ?
 	path := urlPath
 	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
