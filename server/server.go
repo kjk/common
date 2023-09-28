@@ -100,9 +100,10 @@ func makeServeFile(path string, tryServeCompressed bool) func(w http.ResponseWri
 			return
 		}
 		dir := filepath.Dir(path)
+		fs := os.DirFS(dir)
 		name := filepath.Base(path)
 		opts := httputil.ServeFileOptions{
-			Dir:             dir,
+			FS:              fs,
 			ServeCompressed: tryServeCompressed,
 		}
 		if !httputil.TryServeFileFromURL(w, r, name, &opts) {

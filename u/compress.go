@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andybalholm/brotli"
 )
 
 // implement io.ReadCloser over os.File wrapped with io.Reader.
@@ -314,4 +316,30 @@ func IterZipData(zipData []byte, cb func(f *zip.File, data []byte) error) error 
 		return err
 	}
 	return IterZipReader(r, cb)
+}
+
+func ReadZipData(zipData []byte) (map[string][]byte, error) {
+	res := map[string][]byte{}
+	err := IterZipData(zipData, func(f *zip.File, data []byte) error {
+		res[f.Name] = data
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func BrCompressData(d []byte) ([]byte, error) {
+	var dst bytes.Buffer
+	w := brotli.NewWriterLevel(&dst, brotli.BestCompression)
+	_, err := w.Write(d)
+	err2 := w.Close()
+	if err != nil || err2 != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, err2
+	}
+	return dst.Bytes(), nil
 }
