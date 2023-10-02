@@ -61,3 +61,44 @@ func TestCapitalize(t *testing.T) {
 		assert.Equal(t, test.exp, got)
 	}
 }
+
+func TestAppendConfig(t *testing.T) {
+	s := `# this machine's public IP, then replace ":80" below with your
+:80 {
+		# Set this path to your site's directory.
+		root * /usr/share/caddy
+}`
+	exp := `# this machine's public IP, then replace ":80" below with your
+:80 {
+		# Set this path to your site's directory.
+		root * /usr/share/caddy
+}
+
+# ---- arslexis.io
+arslexis.io {
+	reverse_proxy localhost:9243
+}
+# ---- arslexis.io
+`
+	exp2 := `# this machine's public IP, then replace ":80" below with your
+:80 {
+		# Set this path to your site's directory.
+		root * /usr/share/caddy
+}
+
+# ---- arslexis.io
+lala
+# ---- arslexis.io
+`
+
+	caddyConfigDelim := "# ---- arslexis.io"
+	caddyConfig := `arslexis.io {
+	reverse_proxy localhost:9243
+}`
+
+	s2 := AppendOrReplaceInText(s, caddyConfig, caddyConfigDelim)
+	assert.Equal(t, exp, s2)
+
+	s3 := AppendOrReplaceInText(s2, "lala", caddyConfigDelim)
+	assert.Equal(t, exp2, s3)
+}
