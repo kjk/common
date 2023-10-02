@@ -1,6 +1,7 @@
 package u
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -82,4 +83,84 @@ func TrimExt(s string) string {
 func ExtEqualFold(s string, ext string) bool {
 	e := filepath.Ext(s)
 	return strings.EqualFold(e, ext)
+}
+
+func AppendNewline(s *string) string {
+	if strings.HasSuffix(*s, "\n") {
+		return *s
+	}
+	*s = *s + "\n"
+	return *s
+}
+
+func CollapseMultipleNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n") // CRLF => CR
+	prev := ""
+	for prev != s {
+		prev = s
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	return s
+}
+
+func AppendOrReplaceInText(orig string, toAppend string, delim string) string {
+	AppendNewline(&toAppend)
+	AppendNewline(&delim)
+	content := "\n\n" + delim + toAppend + delim
+	if strings.Contains(orig, content) {
+		return CollapseMultipleNewlines(orig)
+	}
+	start := strings.Index(orig, delim)
+	if start < 0 {
+		return CollapseMultipleNewlines(orig + content)
+	}
+	end := strings.Index(orig[start+1:], delim)
+	PanicIf(end == -1, "didn't find end delim")
+	end += start + 1
+	orig = orig[:start] + "\n\n" + orig[end+len(delim):]
+	res := AppendNewline(&orig) + content
+	return CollapseMultipleNewlines(res)
+}
+
+func AppendOrReplaceInFileMust(path string, toAppend string, delim string) bool {
+	st, err := os.Lstat(path)
+	must(err)
+	perm := st.Mode().Perm()
+	orig, err := os.ReadFile(path)
+	must(err)
+	newContent := AppendOrReplaceInText(string(orig), toAppend, delim)
+	if newContent == string(orig) {
+		return false
+	}
+	err = os.WriteFile(path, []byte(newContent), perm)
+	must(err)
+	return true
+}
+
+func ExpandTildeInPath(s string) string {
+	if strings.HasPrefix(s, "~") {
+		dir, err := os.UserHomeDir()
+		must(err)
+		return dir + s[1:]
+	}
+	return s
+}
+
+func ParseEnvMust(d []byte) map[string]string {
+	d = NormalizeNewlines(d)
+	s := string(d)
+	lines := strings.Split(s, "\n")
+	m := make(map[string]string)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		PanicIf(len(parts) != 2, "invalid line '%s' in .env\n", line)
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		m[key] = val
+	}
+	return m
 }

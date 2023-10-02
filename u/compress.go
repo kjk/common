@@ -247,10 +247,7 @@ func zipDirRecur(zw *zip.Writer, baseDir string, dirToZip string) {
 // Directories are added recursively
 func CreateZipFile(dst string, baseDir string, toZip ...string) {
 	os.Remove(dst)
-	if len(toZip) == 0 {
-		panic("must provide toZip args")
-	}
-	fmt.Printf("Creating zip file %s\n", dst)
+	PanicIf(len(toZip) == 0, "must provide toZip args")
 	w, err := os.Create(dst)
 	Must(err)
 	defer CloseNoError(w)
@@ -275,16 +272,16 @@ func CreateZipFile(dst string, baseDir string, toZip ...string) {
 
 func UnzipDataToDir(zipData []byte, dir string) error {
 	writeFile := func(f *zip.File, data []byte) error {
-		path := filepath.Join(dir, f.Name)
-		os.MkdirAll(filepath.Dir(path), 0755)
-		err := os.WriteFile(path, data, 0644)
+		// names in zip are unix-style, convert to windows-style
+		name := filepath.FromSlash(f.Name)
+		path := filepath.Join(dir, name)
+		err := os.MkdirAll(filepath.Dir(path), 0755)
 		if err != nil {
 			return err
 		}
-		return nil
+		return os.WriteFile(path, data, 0644)
 	}
-	IterZipData(zipData, writeFile)
-	return nil
+	return IterZipData(zipData, writeFile)
 }
 
 func IterZipReader(r *zip.Reader, cb func(f *zip.File, data []byte) error) error {

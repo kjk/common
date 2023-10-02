@@ -58,3 +58,7 @@ func IsMac() bool {
 func IsWinOrMac() bool {
 	return IsWindows() || IsMac()
 }
+
+func IsLinux() bool {
+	return strings.Contains(runtime.GOOS, "linux")
+}
