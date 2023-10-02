@@ -15,6 +15,10 @@ func RunLoggedInDir(dir string, exe string, args ...string) error {
 	return err
 }
 
+func RunLoggedInDirMust(dir string, exe string, args ...string) {
+	Must(RunLoggedInDir(dir, exe, args...))
+}
+
 func RunMust(exe string, args ...string) string {
 	cmd := exec.Command(exe, args...)
 	d, err := cmd.CombinedOutput()
