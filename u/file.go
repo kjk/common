@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -150,4 +151,32 @@ func ReadZipFile(path string) (map[string][]byte, error) {
 		res[f.Name] = d
 	}
 	return res, nil
+}
+
+func DirIterFilesRecursively(dir string, cb func(path string, de fs.DirEntry) (bool, error)) error {
+	dirsToVisit := []string{dir}
+	for len(dirsToVisit) > 0 {
+		dir = dirsToVisit[0]
+		dirsToVisit = dirsToVisit[1:]
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, de := range entries {
+			name := de.Name()
+			if de.IsDir() {
+				newDir := filepath.Join(dir, name)
+				dirsToVisit = append(dirsToVisit, newDir)
+				continue
+			}
+			shouldStop, err := cb(filepath.Join(dir, name), de)
+			if err != nil {
+				return err
+			}
+			if shouldStop {
+				return nil
+			}
+		}
+	}
+	return nil
 }

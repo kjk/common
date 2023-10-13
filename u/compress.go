@@ -340,3 +340,15 @@ func BrCompressData(d []byte) ([]byte, error) {
 	}
 	return dst.Bytes(), nil
 }
+
+func BrCompressFile(path string) error {
+	d, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	d2, err := BrCompressData(d)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path+".br", d2, 0644)
+}
