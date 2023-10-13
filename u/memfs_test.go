@@ -1,6 +1,7 @@
 package u
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/kjk/common/assert"
@@ -11,24 +12,24 @@ func TestMemoryFS(t *testing.T) {
 		"file1.txt": []byte("This is the content of file1.txt"),
 		"file2.txt": []byte("This is the content of file2.txt"),
 	}
-	fs := NewMemoryFS(fileData)
+	fsys := NewMemoryFS(fileData)
 	{
 		path := "file1.txt"
-		d, err := FsReadFile(fs, path)
+		d, err := fs.ReadFile(fsys, path)
 		assert.NoError(t, err)
 		exp := fileData[path]
 		assert.Equal(t, exp, d)
 	}
 	{
 		path := "file2.txt"
-		d, err := FsReadFile(fs, path)
+		d, err := fs.ReadFile(fsys, path)
 		assert.NoError(t, err)
 		exp := fileData[path]
 		assert.Equal(t, exp, d)
 	}
 	{
 		path := "file3.txt"
-		d, err := FsReadFile(fs, path)
+		d, err := fs.ReadFile(fsys, path)
 		assert.Error(t, err)
 		assert.Nil(t, d)
 	}

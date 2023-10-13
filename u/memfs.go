@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-var errNotExists = fs.ErrNotExist
-
 // MemoryFS is a custom file system that uses a map to store file data.
 type MemoryFS struct {
 	m       map[string][]byte
@@ -37,6 +35,15 @@ func (m MemoryFS) Open(name string) (fs.File, error) {
 	}
 
 	return &memoryFile{name: name, data: data, modTime: m.modTime}, nil
+}
+
+// optimization for fs.ReadFile https://pkg.go.dev/io/fs#ReadFile
+func (m MemoryFS) ReadFile(name string) ([]byte, error) {
+	data, exists := m.m[name]
+	if !exists {
+		return nil, fs.ErrNotExist
+	}
+	return data, nil
 }
 
 // memoryFile is a custom type that satisfies the fs.File interface.
@@ -115,25 +122,4 @@ func FsFileExists(fs fs.FS, path string) bool {
 	}
 	f.Close()
 	return true
-}
-
-func FsReadFile(fs fs.FS, path string) ([]byte, error) {
-	if mfs, ok := fs.(*MemoryFS); ok {
-		d := mfs.m[path]
-		if d == nil {
-			return nil, errNotExists
-		}
-		return d, nil
-	}
-
-	f, err := fs.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	d, err := io.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-	return d, nil
 }

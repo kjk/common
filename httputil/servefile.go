@@ -31,11 +31,11 @@ func TryServeFile(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions
 }
 
 func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string, opts *ServeFileOptions) bool {
-	fs := opts.FS
+	fsys := opts.FS
 	if opts.ForceCleanURLS {
 		ext := filepath.Ext(urlPath)
 		if strings.EqualFold(ext, ".html") {
-			if u.FsFileExists(fs, urlPath) {
+			if u.FsFileExists(fsys, urlPath) {
 				urlPath = urlPath[:len(urlPath)-len(ext)]
 				SmartPermanentRedirect(w, r, urlPath)
 				return true
@@ -51,22 +51,18 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	// TODO: maybe also resolve /foo into /foo/index.html ?
 	path := urlPath
 	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
-	if !u.FsFileExists(fs, path) && cleanURLS {
+	if !u.FsFileExists(fsys, path) && cleanURLS {
 		path = path + ".html"
-		if !u.FsFileExists(fs, path) {
+		if !u.FsFileExists(fsys, path) {
 			return false
 		}
 	}
 
 	// at this point path is a valid file in fs
-	if r != nil && opts.ServeCompressed {
-		if serveFileMaybeBr(w, r, opts, path) {
-			return true
-		}
-		// TODO: maybe add serveFileMaybeGz
-		// but then again modern browsers probably support br so that would be redundant
+	if serveFileMaybeBr(w, r, opts, path) {
+		return true
 	}
-	d, err := u.FsReadFile(fs, path)
+	d, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return false
 	}
@@ -86,44 +82,51 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	return true
 }
 
-func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions, path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".html", ".txt", ".css", ".js", ".xml", ".svg":
-		// those we serve compressed
-	default:
-		// other formats, e.g. png, should not be served compressed
-		// fmt.Printf("serveFileMaybeBr: skipping because '%s' not served as br because '%s' should not be served compressed\n", path, ext)
-		return false
-	}
-
-	if r == nil {
-		return false
-	}
+func canServeBr(r *http.Request) bool {
 	enc := r.Header.Get("Accept-Encoding")
-	// fmt.Printf("serveFileMaybeBr: enc: '%s'\n", enc)
-	if !strings.Contains(enc, "br") {
-		// fmt.Printf("serveFileMaybeBr: doesn't accept 'br'\n")
+	return strings.Contains(enc, "br")
+}
+
+// if we have a *.br version in opts.FS, serve it
+// otherwise compress on demand if opts.ServeCompressed is true
+func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions, path string) bool {
+	if r == nil || !canServeBr(r) {
 		return false
 	}
-	fs := opts.FS
-	serveFileMu.Lock()
-	if opts.compressedCached == nil {
-		opts.compressedCached = make(map[string][]byte)
+	fsys := opts.FS
+	brData, err := fs.ReadFile(fsys, path+".br")
+	if err != nil {
+		// compress on demand
+		if !opts.ServeCompressed {
+			return false
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		switch ext {
+		case ".html", ".txt", ".css", ".js", ".xml", ".svg":
+			// those we serve compressed
+		default:
+			// other formats, e.g. png, should not be served compressed
+			// fmt.Printf("serveFileMaybeBr: skipping because '%s' not served as br because '%s' should not be served compressed\n", path, ext)
+			return false
+		}
+		serveFileMu.Lock()
+		if opts.compressedCached == nil {
+			opts.compressedCached = make(map[string][]byte)
+		}
+		brData = opts.compressedCached[path]
+		serveFileMu.Unlock()
+		if len(brData) == 0 {
+			d, err := fs.ReadFile(fsys, path)
+			if err != nil {
+				return false
+			}
+			brData, err = u.BrCompressData(d)
+			if err != nil {
+				return false
+			}
+		}
 	}
-	brData := opts.compressedCached[path]
-	serveFileMu.Unlock()
 
-	if len(brData) == 0 {
-		d, err := u.FsReadFile(fs, path)
-		if err != nil {
-			return false
-		}
-		brData, err = u.BrCompressData(d)
-		if err != nil {
-			return false
-		}
-	}
 	if len(brData) == 0 {
 		return false
 	}
