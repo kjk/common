@@ -113,19 +113,23 @@ func makeServeFile(path string, tryServeCompressed bool) func(w http.ResponseWri
 }
 
 // uri is only used to guess content type
-func serveContent(w http.ResponseWriter, r *http.Request, uri string, d []byte) {
+func serveContent(w http.ResponseWriter, r *http.Request, uri string, d []byte, code int, modTime time.Time) {
 	if r == nil {
 		_, err := w.Write(d)
 		must(err)
 		return
 	}
 	content := bytes.NewReader(d)
-	http.ServeContent(w, r, uri, time.Now(), content)
+	if code != http.StatusOK {
+		w.WriteHeader(code)
+		return
+	}
+	http.ServeContent(w, r, uri, modTime, content)
 }
 
-func MakeServeContent(uri string, d []byte) func(w http.ResponseWriter, r *http.Request) {
+func MakeServeContent(uri string, d []byte, code int, modTime time.Time) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		serveContent(w, r, uri, d)
+		serveContent(w, r, uri, d, code, modTime)
 	}
 }
 
@@ -256,13 +260,18 @@ func NewDynamicHandler(get GetHandlerFunc, urls func() []string) *DynamicHandler
 }
 
 type InMemoryFilesHandler struct {
-	files map[string][]byte
+	files   map[string][]byte
+	modTime time.Time
 }
 
 func (h *InMemoryFilesHandler) Get(uri string) func(http.ResponseWriter, *http.Request) {
 	for path, d := range h.files {
 		if strings.EqualFold(path, uri) {
-			return MakeServeContent(uri, d)
+			code := http.StatusOK
+			if strings.HasSuffix(uri, "/404.html") {
+				code = http.StatusNotFound
+			}
+			return MakeServeContent(uri, d, code, h.modTime)
 		}
 	}
 	return nil
@@ -286,7 +295,8 @@ func (h *InMemoryFilesHandler) Add(uri string, body []byte) {
 
 func NewInMemoryFilesHandler(uri string, d []byte) *InMemoryFilesHandler {
 	h := &InMemoryFilesHandler{
-		files: map[string][]byte{},
+		files:   map[string][]byte{},
+		modTime: time.Now(),
 	}
 	h.Add(uri, d)
 	return h

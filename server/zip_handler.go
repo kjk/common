@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kjk/common/httputil"
 	"github.com/kjk/common/u"
@@ -14,13 +15,19 @@ type ZipHandler struct {
 
 	URL     []string
 	content [][]byte // same order as URL
+
+	modTime time.Time
 }
 
 func (h *ZipHandler) Get(uri string) func(w http.ResponseWriter, r *http.Request) {
 	for i, u := range h.URL {
 		// urls are case-insensitive
 		if strings.EqualFold(u, uri) {
-			return MakeServeContent(uri, h.content[i])
+			code := http.StatusOK
+			if strings.HasSuffix(uri, "/404.html") {
+				code = http.StatusNotFound
+			}
+			return MakeServeContent(uri, h.content[i], code, h.modTime)
 		}
 	}
 	return nil
@@ -48,5 +55,6 @@ func NewZipHandler(zipData []byte, urlPrefix string) (*ZipHandler, error) {
 		URLPrefix: urlPrefix,
 		URL:       urls,
 		content:   content,
+		modTime:   time.Now(),
 	}, nil
 }
