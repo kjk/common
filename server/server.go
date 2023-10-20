@@ -368,7 +368,6 @@ func makePermRedirect(uri string) func(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) FindHandler(uri string) (h HandlerFunc, is404 bool) {
-	is404 = false
 	if strings.HasSuffix(uri, "/") {
 		uri = path.Join(uri, "/index.html")
 	}
@@ -377,21 +376,20 @@ func (s *Server) FindHandler(uri string) (h HandlerFunc, is404 bool) {
 			uri = u.TrimExt(uri)
 			h = makePermRedirect(uri)
 		}
-		return
+		return h, false
 	}
 
 	// if we support clean urls, try find "/foo.html" for "/foo"
 	if (s.CleanURLS || s.ForceCleanURLS) && !commonExt(uri) {
 		if h = s.FindHandlerExact(uri + ".html"); h != nil {
-			return
+			return h, false
 		}
 	}
 	// try 404.html
 	a := Gen404Candidates(uri)
 	for _, uri404 := range a {
 		if h = s.FindHandlerExact(uri404); h != nil {
-			is404 = true
-			return
+			return h, true
 		}
 	}
 	return nil, false
