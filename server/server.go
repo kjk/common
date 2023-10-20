@@ -121,7 +121,9 @@ func serveContent(w http.ResponseWriter, r *http.Request, uri string, d []byte, 
 	}
 	content := bytes.NewReader(d)
 	if code != http.StatusOK {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(code)
+		w.Write(d)
 		return
 	}
 	http.ServeContent(w, r, uri, modTime, content)
