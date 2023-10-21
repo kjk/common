@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,21 +77,6 @@ func writeCorpus(d []byte) {
 	must(err)
 }
 
-func testRoundTrip(t *testing.T, r *Record) string {
-	d := r.Marshal()
-	rec, err := UnmarshalRecord(d, nil)
-	assert.NoError(t, err)
-	d2 := rec.Marshal()
-	assert.Equal(t, d, d2)
-
-	if false {
-		testWriterRoundTrip(t, r)
-		writeCorpus(d)
-	}
-
-	return string(d2)
-}
-
 func TestUnmarshalErrors(t *testing.T) {
 	invalidRecords := []string{
 		"ha",
@@ -124,6 +110,22 @@ func testWriterRoundTrip(t *testing.T, r *Record) {
 	assert.Equal(t, rec.Name, r.Name)
 
 	assert.True(t, r.Timestamp.IsZero() || timeDiffLessThanMs(rec.Timestamp, r.Timestamp), "rec.Timestamp: %s, r.Timestamp: %s, diff: %s", rec.Timestamp, r.Timestamp, timeDiff(rec.Timestamp, r.Timestamp))
+}
+
+// serialize and deserialize record and check the data is the same
+func testRoundTrip(t *testing.T, r *Record) string {
+	d := r.Marshal()
+	rec, err := UnmarshalRecord(d, nil)
+	assert.NoError(t, err)
+	d2 := rec.Marshal()
+	assert.Equal(t, d, d2)
+	testWriterRoundTrip(t, r)
+
+	if false {
+		writeCorpus(d)
+	}
+
+	return string(d2)
 }
 
 type testRec struct {
@@ -246,6 +248,7 @@ func TestRecordSerializeSimple2(t *testing.T) {
 	r.Write("k2", "a\nb")
 	s := testRoundTrip(t, &r)
 	assert.Equal(t, "k2:+3\na\nb\n", s)
+	testWriterRoundTrip(t, &r)
 }
 
 func TestWriterNoTimestamp(t *testing.T) {
@@ -334,10 +337,12 @@ func TestRecordSerializeSimple4(t *testing.T) {
 a
 b
 : no name
-bu: gatti 
+bu: gatti{space}
 no value:+0
 bu:   gatti
 `
+	// stupid editors remove trailing spaces
+	exp = strings.ReplaceAll(exp, "{space}", " ")
 	testVals(t, vals, exp)
 }
 
