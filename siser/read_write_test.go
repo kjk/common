@@ -293,14 +293,43 @@ func TestRecordSerializeSimple3(t *testing.T) {
 	assert.Equal(t, exp, got)
 }
 
+func testVals(t *testing.T, vals []string, exp string) {
+	{
+		var r Record
+		for i := 0; i < len(vals); i += 2 {
+			r.Write(vals[i], vals[i+1])
+		}
+		got := string(r.Marshal())
+		assert.Equal(t, exp, got)
+	}
+	{
+		var r Record
+		r.Write(vals...)
+		got := string(r.Marshal())
+		assert.Equal(t, exp, got)
+	}
+	{
+		var r Record
+		for i := 0; i < len(vals); i += 2 {
+			r.Write2(vals[i], vals[i+1])
+		}
+		got := string(r.Marshal())
+		assert.Equal(t, exp, got)
+	}
+	{
+		var r Record
+		valsAny := make([]any, len(vals))
+		for i := 0; i < len(vals); i++ {
+			valsAny[i] = vals[i]
+		}
+		r.Write2(valsAny...)
+		got := string(r.Marshal())
+		assert.Equal(t, exp, got)
+	}
+}
+
 func TestRecordSerializeSimple4(t *testing.T) {
-	var r Record
-	r.Write("k2", "a\nb")
-	r.Write("", "no name")
-	r.Write("bu", "gatti ")
-	r.Write("no value", "")
-	r.Write("bu", "  gatti")
-	got := testRoundTrip(t, &r)
+	vals := []string{"k2", "a\nb", "", "no name", "bu", "gatti ", "no value", "", "bu", "  gatti"}
 	exp := `k2:+3
 a
 b
@@ -309,7 +338,7 @@ bu: gatti
 no value:+0
 bu:   gatti
 `
-	assert.Equal(t, exp, got)
+	testVals(t, vals, exp)
 }
 
 func TestMany(t *testing.T) {
