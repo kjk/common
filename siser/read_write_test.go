@@ -421,16 +421,16 @@ type testRecJSON struct {
 	Referer   string        `json:"referer"`
 }
 
-func BenchmarkSiserMarshal(b *testing.B) {
+func BenchmarkSiserMarshalWriteMany(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		rec.Write("uri", "/atom.xml")
-		rec.Write("code", strconv.Itoa(200))
+		rec.Write2("code", 200)
 		rec.Write("ip", "54.186.248.49")
 		durMs := float64(1.41) / float64(time.Millisecond)
 		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
 		rec.Write("dur", durStr)
 		rec.Write("when", time.Now().Format(time.RFC3339))
-		rec.Write("size", strconv.Itoa(35286))
+		rec.Write2("size", 35286)
 		rec.Write("ua", "Feedspot http://www.feedspot.com")
 		rec.Write("referer", "http://blog.kowalczyk.info/feed")
 		// assign to global to prevents optimizing the loop
@@ -438,7 +438,7 @@ func BenchmarkSiserMarshal(b *testing.B) {
 	}
 }
 
-func BenchmarkSiserMarshal2(b *testing.B) {
+func BenchmarkSiserMarshalWriteSingle(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		durMs := float64(1.41) / float64(time.Millisecond)
 		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
@@ -449,6 +449,24 @@ func BenchmarkSiserMarshal2(b *testing.B) {
 			"dur", durStr,
 			"when", time.Now().Format(time.RFC3339),
 			"size", strconv.Itoa(35286),
+			"ua", "Feedspot http://www.feedspot.com",
+			"referer", "http://blog.kowalczyk.info/feed")
+		// assign to global to prevents optimizing the loop
+		globalData = rec.Marshal()
+	}
+}
+
+func BenchmarkSiserMarshalWrite2Single(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		durMs := float64(1.41) / float64(time.Millisecond)
+		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
+		rec.Write2(
+			"uri", "/atom.xml",
+			"code", 200,
+			"ip", "54.186.248.49",
+			"dur", durStr,
+			"when", time.Now().Format(time.RFC3339),
+			"size", 35286,
 			"ua", "Feedspot http://www.feedspot.com",
 			"referer", "http://blog.kowalczyk.info/feed")
 		// assign to global to prevents optimizing the loop
@@ -478,7 +496,7 @@ func BenchmarkJSONMarshal(b *testing.B) {
 func genSerializedSiser() {
 	var rec Record
 	rec.Write("uri", "/atom.xml")
-	rec.Write("code", strconv.Itoa(200))
+	rec.Write2("code", 200)
 	rec.Write("ip", "54.186.248.49")
 	durMs := float64(1.41) / float64(time.Millisecond)
 	durStr := strconv.FormatFloat(durMs, 'f', 2, 64)

@@ -56,6 +56,36 @@ func (r *Record) Write(args ...string) error {
 	return nil
 }
 
+func toStr(v any, buf *[]byte) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	if i, ok := v.(int); ok {
+		*buf = strconv.AppendInt(*buf, int64(i), 10)
+		return string(*buf)
+	}
+	*buf = (*buf)[:0]
+	*buf = fmt.Appendf(*buf, "%v", v)
+	return string(*buf)
+}
+
+// Write writes key/value pairs to a record.
+// After you write all key/value pairs, call Marshal()
+// to get serialized value (valid until next call to Reset())
+func (r *Record) Write2(args ...any) error {
+	n := len(args)
+	if n == 0 || n%2 != 0 {
+		return fmt.Errorf("invalid number of args: %d. Should be multiple of 2", len(args))
+	}
+	var buf []byte
+	for i := 0; i < n; i += 2 {
+		k := toStr(args[i], &buf)
+		v := toStr(args[i+1], &buf)
+		r.marshalKeyVal(k, v)
+	}
+	return nil
+}
+
 // WriteNonEmpty is like Write but won't write records with empty values
 func (r *Record) WriteNonEmpty(args ...string) error {
 	n := len(args)
