@@ -88,6 +88,8 @@ func (r *Record) Reset() {
 
 func (r *ReadRecord) Reset() {
 	r.Record.Reset()
+	r.Name = ""
+	r.Timestamp = zeroTime
 	if r.Entries != nil {
 		r.Entries = r.Entries[0:0]
 	}
