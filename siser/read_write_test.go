@@ -78,21 +78,17 @@ func writeCorpus(d []byte) {
 
 func testRoundTrip(t *testing.T, r *Record) string {
 	d := r.Marshal()
-	if false {
-		rec, err := UnmarshalRecord(d, nil)
-		assert.NoError(t, err)
-		rec2 := &Record{}
-		err = rec2.Unmarshal(d)
-		assert.NoError(t, err)
+	rec, err := UnmarshalRecord(d, nil)
+	assert.NoError(t, err)
+	d2 := rec.Marshal()
+	assert.Equal(t, d, d2)
 
-		// name and timestamp are not serialized here
-		assert.Equal(t, rec.Entries, r.Entries)
-		assert.Equal(t, rec2.Entries, r.Entries)
+	if false {
 		testWriterRoundTrip(t, r)
 		writeCorpus(d)
 	}
 
-	return string(d)
+	return string(d2)
 }
 
 func TestUnmarshalErrors(t *testing.T) {
@@ -125,7 +121,6 @@ func testWriterRoundTrip(t *testing.T, r *Record) {
 	ok := reader.ReadNextRecord()
 	assert.True(t, ok)
 	rec := reader.Record
-	assert.Equal(t, rec.Entries, r.Entries)
 	assert.Equal(t, rec.Name, r.Name)
 
 	assert.True(t, r.Timestamp.IsZero() || timeDiffLessThanMs(rec.Timestamp, r.Timestamp), "rec.Timestamp: %s, r.Timestamp: %s, diff: %s", rec.Timestamp, r.Timestamp, timeDiff(rec.Timestamp, r.Timestamp))
@@ -240,8 +235,10 @@ func TestRecordSerializeSimple(t *testing.T) {
 		assert.Equal(t, v, "")
 	}
 
-	s := testRoundTrip(t, &r)
-	assert.Equal(t, "key: val\n", s)
+	{
+		s := testRoundTrip(t, &r)
+		assert.Equal(t, "key: val\n", s)
+	}
 }
 
 func TestRecordSerializeSimple2(t *testing.T) {
@@ -426,7 +423,6 @@ type testRecJSON struct {
 
 func BenchmarkSiserMarshal(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		rec.Reset()
 		rec.Write("uri", "/atom.xml")
 		rec.Write("code", strconv.Itoa(200))
 		rec.Write("ip", "54.186.248.49")
@@ -444,7 +440,6 @@ func BenchmarkSiserMarshal(b *testing.B) {
 
 func BenchmarkSiserMarshal2(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		rec.Reset()
 		durMs := float64(1.41) / float64(time.Millisecond)
 		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
 		rec.Write(
@@ -512,7 +507,7 @@ func genSerializedJSON() {
 }
 
 func BenchmarkSiserUnmarshal(b *testing.B) {
-	var rec Record
+	var rec ReadRecord
 	var err error
 	for n := 0; n < b.N; n++ {
 		err = rec.Unmarshal(serializedSiser)

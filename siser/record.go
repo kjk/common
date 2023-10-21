@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -24,15 +23,21 @@ type Entry struct {
 	Value string
 }
 
+var zeroTime time.Time
+
 // Record represents list of key/value pairs that can
 // be serialized/deserialized
 type Record struct {
-	// Entries are available after Unmarshal/UnmarshalRecord
-	Entries []Entry
-	buf     strings.Builder
-	Name    string
+	buf  bytes.Buffer
+	Name string
 	// when writing, if not provided we use current time
 	Timestamp time.Time
+}
+
+type ReadRecord struct {
+	Record
+	// Entries are available after Unmarshal/UnmarshalRecord
+	Entries []Entry
 }
 
 // Write writes key/value pairs to a record.
@@ -71,16 +76,21 @@ func (r *Record) WriteNonEmpty(args ...string) error {
 	return nil
 }
 
-// Reset makes it easy to re-use Record (as opposed to allocating a new one
-// each time)
+// Reset to re-use the record when writing for efficiency
+// it doesn't reset Name because common use case
+// is writing the same record type
 func (r *Record) Reset() {
+	// if Timestamp is zero time Writer.Write() will use current time
+	// at the time of writing
+	r.Timestamp = zeroTime
+	r.buf.Reset()
+}
+
+func (r *ReadRecord) Reset() {
+	r.Record.Reset()
 	if r.Entries != nil {
 		r.Entries = r.Entries[0:0]
 	}
-	r.Name = ""
-	var t time.Time
-	r.Timestamp = t
-	r.buf.Reset()
 }
 
 func get(entries []Entry, key string) (string, bool) {
@@ -93,23 +103,23 @@ func get(entries []Entry, key string) (string, bool) {
 }
 
 // Get returns a value for a given key
-func (r *Record) Get(key string) (string, bool) {
+func (r *ReadRecord) Get(key string) (string, bool) {
 	return get(r.Entries, key)
+}
+
+func nonEmptyEndsWithNewline(s string) bool {
+	n := len(s)
+	return n == 0 || s[n-1] == '\n'
+}
+
+// return true if value needs to be serialized in long,
+// size-prefixed format
+func needsLongFormat(s string) bool {
+	return len(s) == 0 || len(s) > 120 || !serializableOnLine(s)
 }
 
 func (r *Record) marshalKeyVal(key, val string) {
 	r.buf.WriteString(key)
-
-	nonEmptyEndsWithNewline := func(s string) bool {
-		n := len(s)
-		return n == 0 || s[n-1] == '\n'
-	}
-
-	// return true if value needs to be serialized in long,
-	// size-prefixed format
-	needsLongFormat := func(s string) bool {
-		return len(s) == 0 || len(s) > 120 || !serializableOnLine(s)
-	}
 
 	isLong := needsLongFormat(val)
 	if isLong {
@@ -132,16 +142,24 @@ func (r *Record) marshalKeyVal(key, val string) {
 
 // Marshal converts record to bytes
 func (r *Record) Marshal() []byte {
-	return []byte(r.buf.String())
+	return r.buf.Bytes()
+}
+
+func (r *ReadRecord) Marshal() []byte {
+	for _, e := range r.Entries {
+		r.Record.Write(e.Key, e.Value)
+	}
+	return r.Record.Marshal()
 }
 
 // UnmarshalRecord unmarshall record as marshalled with Record.Marshal
 // For efficiency re-uses record r. If r is nil, will allocate new record.
-func UnmarshalRecord(d []byte, r *Record) (*Record, error) {
+func UnmarshalRecord(d []byte, r *ReadRecord) (*ReadRecord, error) {
 	if r == nil {
-		r = &Record{}
+		r = &ReadRecord{}
 	} else {
 		r.Reset()
+		r.Name = ""
 	}
 
 	appendKeyVal := func(key, val string) {
@@ -203,7 +221,7 @@ func UnmarshalRecord(d []byte, r *Record) (*Record, error) {
 
 // Unmarshal resets record and decodes data as created by Marshal
 // into it.
-func (r *Record) Unmarshal(d []byte) error {
+func (r *ReadRecord) Unmarshal(d []byte) error {
 	rec, err := UnmarshalRecord(d, r)
 	// if those fails it's a bug in the library
 	panicIf(err == nil && rec == nil, "should return err or rec")

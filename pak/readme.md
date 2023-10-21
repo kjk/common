@@ -75,7 +75,7 @@ Usually I would `.zip` file for that but `ZIP` is an old, quirky file format.
 
 I wanted a simple and fast way to send a file out of the archive to the browser, already pre-compressed with a browser-compatible compression algorithm like brotli.
 
-Zip doesn't natively support brotli compression. Not an unfixable problem (zip allows to store uncompressed files) but I took this opportunity to implement my own archive format which supports arbitrary per-file meta-data.
+Zip doesn't natively support brotli compression. This can be fixed (zip allows to store uncompressed files) but I took this opportunity to implement my own archive format which supports arbitrary per-file meta-data.
 
 Building on top of my [siser](https://github.com/kjk/siser) library it's under 400 lines of code.
 
@@ -85,4 +85,5 @@ The header is stored in [siser](https://github.com/kjk/siser) format.
 
 The data for each file follows.
 
-The archive is meant for batch creation. It doesn't support adding/removing/updating of files after the archive has been created.
+Created archive is read-only. You can't add/remove/update files (you can re-create a new archive with wanted changes).
+

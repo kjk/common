@@ -33,6 +33,8 @@ func createWriter() (*siser.Writer, error) {
 
 func logHTTPRequest(w *siser.Writer, url string, ipAddr string, statusCode int) error {
 	var rec siser.Record
+	// if you give the record a name (optional) you can
+	rec.Name = "httplog"
 	// you can append multiple key/value pairs at once
 	rec.Write("url", url, "ipaddr", ipAddr)
 	// or assemble with multiple calls
@@ -50,10 +52,10 @@ ipaddr: 10.0.0.1
 code: 200
 ```
 
-Here's what and why:
+Explanation:
 * `61` is the size of the data. This allows us to read the exact number of bytes in the record
 * `1553488435903` is a timestamp which is Unix epoch time in milliseconds (more precision than standard Unix time which is in seconds)
-* `httplog` is optional name of the record. This allows you to easily write multiple types of records to a file
+* `httplog` is optional name of the record so that we can write many types of records to the same file
 
 To read all records from the file:
 ```go
@@ -73,7 +75,7 @@ fatalIfErr(rec.Err())
 
 ## Usage scenarios
 
-I use `siser` for in my web services for 2 use cases:
+I use `siser` in my web services for 2 use cases:
 
 * logging to help in debugging issues after they happen
 * implementing poor-man's analytics
@@ -81,14 +83,18 @@ I use `siser` for in my web services for 2 use cases:
 Logging for debugging adds a little bit more structure over
 ad hoc logging. I can add some meta-data to log entries
 and in addition to reading the logs I can quickly write
-programs that filter the logs. For example if I add serving time
-to http request log I could easily write a program that shows
-requests that take over 1 second to serve.
+programs that filter the logs.
+
+For example if I log how long it took to handle a given http
+request, I can write a program that shows slow requests.
 
 Another one is poor-man's analytics. For example, if you're building
 a web service that converts .png file to .ico file, it would be
 good to know daily statistics about how many files were converted,
 how much time an average conversion takes etc.
+
+We can log this as events to a file and then do daily / weekly etc.
+statistics.
 
 ## Performance and implementation notes
 
@@ -104,14 +110,19 @@ When reading and deserializing records, `siser.Reader` uses this optimization in
 
 The format avoids the need for escaping keys and values, which helps in making encoding/decoding fast.
 
-How does that play out in real life? I wrote a benchmark comparing siser vs. json.Marshal. It’s about 30% faster:
+How does that play out in real life? I wrote a benchmark comparing siser vs. `json.Marshal`:
 
 ```
 $ go test -bench=.
-BenchmarkSiserMarshal-8   	 1000000	      1903 ns/op
-BenchmarkJSONMarshal-8    	  500000	      2905 ns/op
+BenchmarkSiserMarshal-10      	 2160492	       558.2 ns/op
+BenchmarkSiserMarshal2-10     	 2146057	       558.2 ns/op
+BenchmarkJSONMarshal-10       	 2141493	       559.5 ns/op
+BenchmarkSiserUnmarshal-10    	 4011476	       297.7 ns/op
+BenchmarkJSONUnmarshal-10     	  694324	      1714.0 ns/op
 ```
 
-The format is binary-safe and works for serializing large values e.g. you can use png image as value.
+Marshalling is almost the same speed; un-marshalling is significantly faster.
 
-It’s also very easy to implement in any language.
+The format is binary-safe and works for serializing large values e.g. you can store png image as value.
+
+Format is simple so it's easy to implement in any language.

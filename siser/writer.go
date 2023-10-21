@@ -24,7 +24,9 @@ func NewWriter(w io.Writer) *Writer {
 // WriteRecord writes a record in a specified format
 func (w *Writer) WriteRecord(r *Record) (int, error) {
 	d := r.Marshal()
-	return w.Write(d, r.Timestamp, r.Name)
+	n, err := w.Write(d, r.Timestamp, r.Name)
+	r.Reset()
+	return n, err
 }
 
 // Write writes a block of data with optional timestamp and name.

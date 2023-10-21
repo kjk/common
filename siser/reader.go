@@ -20,7 +20,7 @@ type Reader struct {
 
 	// Record is available after ReadNextRecord().
 	// It's over-written in next ReadNextRecord().
-	Record *Record
+	Record *ReadRecord
 
 	// Data / Name / Timestampe are available after ReadNextData.
 	// They are over-written in next ReadNextData.
@@ -46,7 +46,7 @@ type Reader struct {
 func NewReader(r *bufio.Reader) *Reader {
 	return &Reader{
 		r:      r,
-		Record: &Record{},
+		Record: &ReadRecord{},
 	}
 }
 
