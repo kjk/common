@@ -3,6 +3,7 @@ package u
 import (
 	"io"
 	"io/fs"
+	"strings"
 	"time"
 )
 
@@ -111,12 +112,23 @@ func (fi fileInfo) Sys() interface{} {
 	return nil
 }
 
-func FsFileExists(fs fs.FS, path string) bool {
-	if mfs, ok := fs.(*MemoryFS); ok {
+func FsFileExists(fsys fs.FS, path string) bool {
+	// paths must use '/' (unix) not '\' (windows)
+	PanicIf(strings.Contains(path, "\\"))
+
+	if mfs, ok := fsys.(*MemoryFS); ok {
 		return mfs.m[path] != nil
 	}
 
-	f, err := fs.Open(path)
+	if fstat, ok := fsys.(fs.StatFS); ok {
+		st, err := fstat.Stat(path)
+		if err != nil {
+			return false
+		}
+		return !st.IsDir()
+	}
+
+	f, err := fsys.Open(path)
 	if err != nil {
 		return false
 	}
