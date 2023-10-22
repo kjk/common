@@ -155,10 +155,28 @@ func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration
 // GetRequestIPAddress returns ip address of the client making the request,
 // taking into account http proxies
 func GetRequestIPAddress(r *http.Request) string {
-	hdr := r.Header
-	hdrRealIP := hdr.Get("x-real-ip")
-	hdrForwardedFor := hdr.Get("x-forwarded-for")
-	// Request.RemoteAddress contains port, which we want to remove i.e.:
+	if r == nil {
+		return ""
+	}
+	pickFirst := func(hdrName string) string {
+		// sometimes they are stored as "ip1, ip2, ip3" with ip1 being the best
+		s := r.Header.Get(hdrName)
+		if s == "" {
+			return ""
+		}
+		parts := strings.Split(s, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	if val := pickFirst("CF-Connecting-IP"); val != "" {
+		return val
+	}
+	if val := pickFirst("X-Real-Ip"); val != "" {
+		return val
+	}
+	if val := pickFirst("X-Forwarded-For"); val != "" {
+		return val
+	}
+	// Request.RemoteAddr contains port, which we want to remove i.e.:
 	// "[::1]:58292" => "[::1]"
 	ipAddrFromRemoteAddr := func(s string) string {
 		idx := strings.LastIndex(s, ":")
@@ -167,19 +185,10 @@ func GetRequestIPAddress(r *http.Request) string {
 		}
 		return s[:idx]
 	}
-	if hdrRealIP == "" && hdrForwardedFor == "" {
+	if r.RemoteAddr != "" {
 		return ipAddrFromRemoteAddr(r.RemoteAddr)
 	}
-	if hdrForwardedFor != "" {
-		// X-Forwarded-For is potentially a list of addresses separated with ","
-		parts := strings.Split(hdrForwardedFor, ",")
-		for i, p := range parts {
-			parts[i] = strings.TrimSpace(p)
-		}
-		// TODO: should return first non-local address
-		return parts[0]
-	}
-	return hdrRealIP
+	return ""
 }
 
 // <dir>/httplog-2021-10-06_01.txt.br
