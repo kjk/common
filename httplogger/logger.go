@@ -73,24 +73,27 @@ func (l *Logger) Close() error {
 // some headers and not worth logging
 var (
 	hdrsToNotLog = []string{
+		"Accept-Language",
+		"Cache-Control",
+		"Cf-Ray",
+		"CF-Visitor",
+		"Cdn-Loop",
+		"Cookie",
 		"Connection",
+		"Dnt",
+		"If-Modified-Since",
+		"Sec-Fetch-Dest",
 		"Sec-Ch-Ua-Mobile",
 		// "Sec-Ch-Ua",
-		"Sec-Fetch-Dest",
 		"Sec-Ch-Ua-Platform",
-		"Dnt",
-		"Upgrade-Insecure-Requests",
 		"Sec-Fetch-Site",
 		"Sec-Fetch-Mode",
 		"Sec-Fetch-User",
-		"If-Modified-Since",
-		"Accept-Language",
-		"Cf-Ray",
-		"CF-Visitor",
+		"Upgrade-Insecure-Requests",
 		"X-Request-Start",
-		"Cdn-Loop",
+		"X-Forwarded-For",
 		"X-Forwarded-Proto",
-		"Cookie",
+		"X-Forwarded-Host",
 	}
 	hdrsToNotLogMap map[string]bool
 )
