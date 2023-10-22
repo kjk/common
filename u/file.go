@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 )
 
@@ -103,6 +104,17 @@ func DataSha1Hex(d []byte) string {
 	return fmt.Sprintf("%x", sha1[:])
 }
 
+// ReadLinesFromReader reads lines from io.Reader
+func ReadLinesFromReader(r io.Reader) ([]string, error) {
+	scanner := bufio.NewScanner(r)
+	var res []string
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		res = append(res, string(line))
+	}
+	return res, scanner.Err()
+}
+
 // ReadLines reads file as lines
 func ReadLines(filePath string) ([]string, error) {
 	file, err := os.Open(filePath)
@@ -110,16 +122,7 @@ func ReadLines(filePath string) ([]string, error) {
 		return nil, err
 	}
 	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	res := make([]string, 0)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		res = append(res, string(line))
-	}
-	if err = scanner.Err(); err != nil {
-		return nil, err
-	}
-	return res, nil
+	return ReadLinesFromReader(file)
 }
 
 // CloseNoError is like io.Closer Close() but ignores an error
@@ -153,7 +156,8 @@ func ReadZipFile(path string) (map[string][]byte, error) {
 	return res, nil
 }
 
-func DirIterFilesRecursively(dir string, cb func(path string, de fs.DirEntry) (bool, error)) error {
+// call cb on each file in a directory
+func IterDir(dir string, cb func(path string, de fs.DirEntry) (bool, error)) error {
 	dirsToVisit := []string{dir}
 	for len(dirsToVisit) > 0 {
 		dir = dirsToVisit[0]
@@ -175,6 +179,36 @@ func DirIterFilesRecursively(dir string, cb func(path string, de fs.DirEntry) (b
 			}
 			if shouldStop {
 				return nil
+			}
+		}
+	}
+	return nil
+}
+
+// call cb on each file in fsys
+// startDir should be ". for root directory, "" and "/" do not work
+func IterReadDirFS(fsys fs.ReadDirFS, startDir string, cb func(string, fs.DirEntry) error) error {
+	if startDir == "" || startDir == "/" {
+		return fmt.Errorf("startDir is '%s', should be '.' for ", startDir)
+	}
+	dirsToVisit := []string{startDir}
+	for len(dirsToVisit) > 0 {
+		dir := dirsToVisit[0]
+		dirsToVisit = dirsToVisit[1:]
+
+		dirs, err := fs.ReadDir(fsys, dir)
+		if err != nil {
+			return err
+		}
+		for _, d := range dirs {
+			fpath := path.Join(dir, d.Name())
+			if d.IsDir() {
+				dirsToVisit = append(dirsToVisit, fpath)
+				continue
+			}
+
+			if err := cb(fpath, d); err != nil {
+				return err
 			}
 		}
 	}
