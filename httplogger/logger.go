@@ -75,6 +75,7 @@ var (
 	hdrsToNotLog = []string{
 		"Connection",
 		"Sec-Ch-Ua-Mobile",
+		// "Sec-Ch-Ua",
 		"Sec-Fetch-Dest",
 		"Sec-Ch-Ua-Platform",
 		"Dnt",
@@ -89,6 +90,7 @@ var (
 		"X-Request-Start",
 		"Cdn-Loop",
 		"X-Forwarded-Proto",
+		"Cookie",
 	}
 	hdrsToNotLogMap map[string]bool
 )
