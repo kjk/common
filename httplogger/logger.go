@@ -105,23 +105,13 @@ func shouldLogHeader(s string) bool {
 	return !hdrsToNotLogMap[s]
 }
 
-func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
-	if l == nil {
-		return nil
-	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if l.siser == nil {
-		return nil
-	}
-
-	rec := &l.rec
+// WriteToRecord can be used outside of Logger
+func WriteToRecord(rec *siser.Record, r *http.Request, code int, size int64, dur time.Duration) {
 	rec.Reset()
+	rec.Name = "http"
 	rec.Write("req", fmt.Sprintf("%s %s %d", r.Method, r.RequestURI, code))
 	rec.WriteNonEmpty("host", r.Host)
-	rec.WriteNonEmpty("ipaddr", requestGetRemoteAddress(r))
+	rec.WriteNonEmpty("ipaddr", GetRequestIPAddress(r))
 	rec.Write("size", strconv.FormatInt(size, 10))
 	durMicro := int64(dur / time.Microsecond)
 	rec.Write("durmicro", strconv.FormatInt(durMicro, 10))
@@ -142,14 +132,29 @@ func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration
 			}
 		}
 	}
+}
 
+func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
+	if l == nil {
+		return nil
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.siser == nil {
+		return nil
+	}
+
+	rec := &l.rec
+	WriteToRecord(rec, r, code, size, dur)
 	_, err := l.siser.WriteRecord(rec)
 	return err
 }
 
-// requestGetRemoteAddress returns ip address of the client making the request,
+// GetRequestIPAddress returns ip address of the client making the request,
 // taking into account http proxies
-func requestGetRemoteAddress(r *http.Request) string {
+func GetRequestIPAddress(r *http.Request) string {
 	hdr := r.Header
 	hdrRealIP := hdr.Get("x-real-ip")
 	hdrForwardedFor := hdr.Get("x-forwarded-for")
@@ -179,7 +184,7 @@ func requestGetRemoteAddress(r *http.Request) string {
 
 // <dir>/httplog-2021-10-06_01.txt.br
 // =>
-//apps/cheatsheet/httplog/2021/10-06/2021-10-06_01.txt.br
+// apps/cheatsheet/httplog/2021/10-06/2021-10-06_01.txt.br
 // return "" if <path> is in unexpected format
 func RemotePathFromFilePath(app, path string) string {
 	name := filepath.Base(path)
