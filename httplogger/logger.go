@@ -77,6 +77,7 @@ var (
 		"Cache-Control",
 		"Cf-Ray",
 		"CF-Visitor",
+		"CF-Connecting-IP",
 		"Cdn-Loop",
 		"Cookie",
 		"Connection",
