@@ -33,15 +33,21 @@ func (w *Writer) WriteRecord(r *Record) (int, error) {
 // Returns number of bytes written (length of d + lenght of metadata)
 // and an error
 func (w *Writer) Write(d []byte, t time.Time, name string) (int, error) {
-	var hdr string
+	// TODO(perf): add re-usable Writer.writeBuf bytes.Buffer to
+	// avoid allocating buf every time
+	// forthermore, if !needsNewline, only serialize header and do 2 writers
+	// to avoid copying memory. Not sure if will be faster than single write
+
+	// for readability new record starts with this marker
+	hdr := "--- "
 	if w.NoTimestamp {
-		hdr = strconv.Itoa(len(d))
+		hdr += strconv.Itoa(len(d))
 	} else {
 		if t.IsZero() {
 			t = time.Now()
 		}
 		ms := TimeToUnixMillisecond(t)
-		hdr = strconv.Itoa(len(d)) + " " + strconv.FormatInt(ms, 10)
+		hdr += strconv.Itoa(len(d)) + " " + strconv.FormatInt(ms, 10)
 	}
 	if name != "" {
 		hdr += " " + name

@@ -55,6 +55,8 @@ func (r *Reader) Done() bool {
 	return r.err != nil || r.done
 }
 
+var hdrPrefix = []byte("--- ")
+
 // ReadNextData reads next block from the reader, returns false
 // when no more record. If returns false, check Err() to see
 // if there were errors.
@@ -68,9 +70,9 @@ func (r *Reader) ReadNextData() bool {
 	r.CurrRecordPos = r.NextRecordPos
 
 	// read header in the format:
-	// "${size} ${timestamp_in_unix_epoch_ms} ${name}\n"
+	// "--- ${size} ${timestamp_in_unix_epoch_ms} ${name}\n"
 	// or (if NoTimestamp):
-	// "${size} ${name}\n"
+	// "--- ${size} ${name}\n"
 	// ${name} is optional
 	hdr, err := r.r.ReadBytes('\n')
 	if err != nil {
@@ -82,6 +84,10 @@ func (r *Reader) ReadNextData() bool {
 		return false
 	}
 	recSize := len(hdr)
+
+	// for backwards compatibility, "--- " header is optional
+	hdr = bytes.TrimPrefix(hdr, hdrPrefix)
+
 	rest := hdr[:len(hdr)-1] // remove '\n' from end
 	idx := bytes.IndexByte(rest, ' ')
 	var dataSize []byte

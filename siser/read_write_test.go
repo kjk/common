@@ -180,9 +180,9 @@ func TestWriter(t *testing.T) {
 		mkTestRec("hey\n", ""),
 		mkTestRec("ho", "with name"),
 	}
-	exp := `4 5000
+	exp := `--- 4 5000
 hey
-2 5000 with name
+--- 2 5000 with name
 ho
 `
 	buf := writeData(t, tests)
@@ -260,12 +260,12 @@ func TestWriterNoTimestamp(t *testing.T) {
 		{
 			data: "foo",
 			name: "name",
-			exp:  "3 name\nfoo\n",
+			exp:  "--- 3 name\nfoo\n",
 		},
 		{
 			data: "foo\n",
 			name: "",
-			exp:  "4\nfoo\n",
+			exp:  "--- 4\nfoo\n",
 		},
 	}
 	for _, test := range tests {
