@@ -1,6 +1,7 @@
 package siser
 
 import (
+	"bytes"
 	"io"
 	"strconv"
 	"time"
@@ -12,6 +13,8 @@ type Writer struct {
 	// NoTimestamp disables writing timestamp, which
 	// makes serialized data not depend on when they were written
 	NoTimestamp bool
+
+	writeBuf bytes.Buffer
 }
 
 // NewWriter creates a writer
@@ -33,41 +36,41 @@ func (w *Writer) WriteRecord(r *Record) (int, error) {
 // Returns number of bytes written (length of d + lenght of metadata)
 // and an error
 func (w *Writer) Write(d []byte, t time.Time, name string) (int, error) {
-	// TODO(perf): add re-usable Writer.writeBuf bytes.Buffer to
-	// avoid allocating buf every time
-	// forthermore, if !needsNewline, only serialize header and do 2 writers
+	// TODO(perf): if !needsNewline, only serialize header and do 2 writers
 	// to avoid copying memory. Not sure if will be faster than single write
 
-	// for readability new record starts with this marker
-	hdr := "--- "
+	// most writes should be small. if buffer gets big, don't keep it
+	// around (unbounded cache is a mem leak)
+	if w.writeBuf.Cap() > 100*1024 && len(d) < 50*1024 {
+		w.writeBuf = bytes.Buffer{}
+	}
+	w.writeBuf.Truncate(0)
+
+	// for readability new record starts with "--- "
+	w.writeBuf.Write(hdrPrefix)
 	if w.NoTimestamp {
-		hdr += strconv.Itoa(len(d))
+		w.writeBuf.WriteString(strconv.Itoa(len(d)))
 	} else {
 		if t.IsZero() {
 			t = time.Now()
 		}
 		ms := TimeToUnixMillisecond(t)
-		hdr += strconv.Itoa(len(d)) + " " + strconv.FormatInt(ms, 10)
+		w.writeBuf.WriteString(strconv.Itoa(len(d)) + " " + strconv.FormatInt(ms, 10))
 	}
 	if name != "" {
-		hdr += " " + name
+		w.writeBuf.WriteString(" " + name)
 	}
-	hdr += "\n"
-	n := len(d)
-	bufSize := len(hdr) + n
+	w.writeBuf.WriteByte('\n')
+	w.writeBuf.Write(d)
+
 	// for readability, if the record doesn't end with newline,
 	// we add one at the end. Makes decoding a bit harder but
 	// not by much.
+	n := len(d)
 	needsNewline := (n > 0) && (d[n-1] != '\n')
 	if needsNewline {
-		bufSize += 1
+		w.writeBuf.WriteByte('\n')
 	}
-
-	buf := make([]byte, 0, bufSize)
-	buf = append(buf, hdr...)
-	buf = append(buf, d...)
-	if needsNewline {
-		buf = append(buf, '\n')
-	}
-	return w.w.Write(buf)
+	n2, err := w.writeBuf.WriteTo(w.w)
+	return int(n2), err
 }
