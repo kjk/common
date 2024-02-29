@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/fs"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	fsys := opts.FS
 	if opts.ForceCleanURLS {
 		ext := filepath.Ext(urlPath)
+		// TODO: redirect /foo/index.html => /foo/ ?
 		if strings.EqualFold(ext, ".html") {
 			if u.FsFileExists(fsys, urlPath) {
 				urlPath = urlPath[:len(urlPath)-len(ext)]
@@ -48,26 +50,32 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	// for fs.FS paths cannot start with "/"
 	urlPath = strings.TrimPrefix(urlPath, "/")
 
-	// TODO: maybe also resolve /foo into /foo/index.html ?
-	path := urlPath
+	fsPath := urlPath
 	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
-	if !u.FsFileExists(fsys, path) && cleanURLS {
-		path = path + ".html"
-		if !u.FsFileExists(fsys, path) {
-			return false
+	if cleanURLS {
+		if !u.FsFileExists(fsys, urlPath) {
+			// try '/foo' as '/foo.html'
+			fsPath = urlPath + ".html"
+			if !u.FsFileExists(fsys, fsPath) {
+				// try '/foo' as '/foo/index.html'
+				fsPath = path.Join(urlPath, "index.html")
+				if !u.FsFileExists(fsys, fsPath) {
+					return false
+				}
+			}
 		}
 	}
 
 	// at this point path is a valid file in fs
-	if serveFileMaybeBr(w, r, opts, path) {
+	if serveFileMaybeBr(w, r, opts, fsPath) {
 		return true
 	}
-	d, err := fs.ReadFile(fsys, path)
+	d, err := fs.ReadFile(fsys, fsPath)
 	if err != nil {
 		return false
 	}
 
-	ct := u.MimeTypeFromFileName(path)
+	ct := u.MimeTypeFromFileName(fsPath)
 	if ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
@@ -78,7 +86,7 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 		return err == nil
 	}
 	f := bytes.NewReader(d)
-	http.ServeContent(w, r, path, globalModTime, f)
+	http.ServeContent(w, r, fsPath, globalModTime, f)
 	return true
 }
 
