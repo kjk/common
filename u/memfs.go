@@ -122,10 +122,7 @@ func FsFileExists(fsys fs.FS, path string) bool {
 
 	if fstat, ok := fsys.(fs.StatFS); ok {
 		st, err := fstat.Stat(path)
-		if err != nil {
-			return false
-		}
-		return !st.IsDir()
+		return err == nil && !st.IsDir()
 	}
 
 	f, err := fsys.Open(path)

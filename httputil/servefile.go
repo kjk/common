@@ -20,57 +20,24 @@ var (
 
 type ServeFileOptions struct {
 	FS               fs.FS
+	DirPrefix        string // e.g. dist/
 	SupportCleanURLS bool
 	ForceCleanURLS   bool
 	ServeCompressed  bool
-	compressedCached map[string][]byte
+	// list of url prefixes that should be served as long-lived (e.g. /static/, /assets/)
+	LongLivedURLPrefixes []string
+	compressedCached     map[string][]byte
 }
 
-func TryServeFile(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions) bool {
-	urlPath := r.URL.Path
-	return TryServeFileFromURL(w, r, urlPath, opts)
-}
-
-func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string, opts *ServeFileOptions) bool {
-	fsys := opts.FS
-	if opts.ForceCleanURLS {
-		ext := filepath.Ext(urlPath)
-		// TODO: redirect /foo/index.html => /foo/ ?
-		if strings.EqualFold(ext, ".html") {
-			if u.FsFileExists(fsys, urlPath) {
-				urlPath = urlPath[:len(urlPath)-len(ext)]
-				SmartPermanentRedirect(w, r, urlPath)
-				return true
-			}
-		}
+func serveFileFromFS(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions, fsPath string) bool {
+	if !u.FsFileExists(opts.FS, fsPath) {
+		return false
 	}
-	if strings.HasSuffix(urlPath, "/") {
-		urlPath += "index.html"
-	}
-	// for fs.FS paths cannot start with "/"
-	urlPath = strings.TrimPrefix(urlPath, "/")
-
-	fsPath := urlPath
-	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
-	if cleanURLS {
-		if !u.FsFileExists(fsys, urlPath) {
-			// try '/foo' as '/foo.html'
-			fsPath = urlPath + ".html"
-			if !u.FsFileExists(fsys, fsPath) {
-				// try '/foo' as '/foo/index.html'
-				fsPath = path.Join(urlPath, "index.html")
-				if !u.FsFileExists(fsys, fsPath) {
-					return false
-				}
-			}
-		}
-	}
-
-	// at this point path is a valid file in fs
+	// at this point fsPath is a valid file in fs
 	if serveFileMaybeBr(w, r, opts, fsPath) {
 		return true
 	}
-	d, err := fs.ReadFile(fsys, fsPath)
+	d, err := fs.ReadFile(opts.FS, fsPath)
 	if err != nil {
 		return false
 	}
@@ -88,6 +55,63 @@ func TryServeFileFromURL(w http.ResponseWriter, r *http.Request, urlPath string,
 	f := bytes.NewReader(d)
 	http.ServeContent(w, r, fsPath, globalModTime, f)
 	return true
+}
+
+func TryServeFileFromFS(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions, fsPath string) bool {
+	return serveFileFromFS(w, r, opts, fsPath)
+}
+
+func TryServeURLFromFS(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions) bool {
+	dirPrefix := opts.DirPrefix
+	u.PanicIf(strings.HasPrefix(dirPrefix, "/"), "dirPrefix should not start with /")
+	uri := r.URL.Path
+	fsPath := path.Join(dirPrefix, uri)
+	fsys := opts.FS
+	pathExists := u.FsFileExists(fsys, fsPath)
+	if pathExists && opts.ForceCleanURLS {
+		ext := filepath.Ext(uri)
+		// redirect /foo.html => /foo
+		if strings.EqualFold(ext, ".html") {
+			uri = uri[:len(uri)-len(ext)]
+			SmartPermanentRedirect(w, r, uri)
+			return true
+		}
+		// redirect /foo/index.html => /foo/
+		if strings.HasSuffix(uri, "/index.html") {
+			uri = strings.TrimSuffix(uri, "index.html")
+			SmartPermanentRedirect(w, r, uri)
+			return true
+		}
+	}
+	// try `/foo/` as `/foo/index.html
+	if strings.HasSuffix(uri, "/") {
+		fsPath = path.Join(dirPrefix, uri+"index.html")
+		pathExists = u.FsFileExists(fsys, fsPath)
+	}
+
+	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
+	if !pathExists && cleanURLS {
+		// try '/foo' as '/foo.html'
+		fsPath = path.Join(dirPrefix, uri+".html")
+		if !u.FsFileExists(fsys, fsPath) {
+			return false
+		}
+	}
+
+	// at this point fsPath exists in fsys
+	isLongLived := false
+	for _, prefix := range opts.LongLivedURLPrefixes {
+		if strings.HasPrefix(uri, prefix) {
+			isLongLived = true
+			break
+		}
+	}
+	if isLongLived {
+		// 31536000 seconds is a year
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+
+	return serveFileFromFS(w, r, opts, fsPath)
 }
 
 func canServeBr(r *http.Request) bool {
