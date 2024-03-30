@@ -160,3 +160,62 @@ func SmartRedirect(w http.ResponseWriter, r *http.Request, uri string, code int)
 func SmartPermanentRedirect(w http.ResponseWriter, r *http.Request, uri string) {
 	SmartRedirect(w, r, uri, http.StatusMovedPermanently) // 301
 }
+
+// GetRequestIPAddress returns IP address of the request even for proxied requests
+func GetBestRemoteAddress(r *http.Request) string {
+	h := r.Header
+	potentials := []string{h.Get("CF-Connecting-IP"), h.Get("X-Real-Ip"), h.Get("X-Forwarded-For"), r.RemoteAddr}
+	for _, v := range potentials {
+		// sometimes they are stored as "ip1, ip2, ip3" with ip1 being the best
+		parts := strings.Split(v, ",")
+		res := strings.TrimSpace(parts[0])
+		if res != "" {
+			return res
+		}
+	}
+	return ""
+}
+
+func getHeader(h http.Header, hdrKey string, mapKey string, m map[string]interface{}) {
+	val := h.Get(hdrKey)
+	if len(val) > 0 {
+		m[mapKey] = val
+	}
+}
+
+var referrerQueryParams = []string{
+	"ref",
+	"referer",
+	"referrer",
+	"source",
+	"utm_source",
+}
+
+func getReferrerFromHeaderOrQuery(r *http.Request) string {
+	referrer := r.Header.Get("Referer")
+	if referrer == "" {
+		for _, param := range referrerQueryParams {
+			referrer = r.URL.Query().Get(param)
+			if referrer != "" {
+				return referrer
+			}
+		}
+	}
+	return referrer
+}
+
+func GetRequestInfo(r *http.Request, m map[string]interface{}) {
+	m["method"] = r.Method
+	m["url"] = r.URL.String()
+	m["ip"] = GetBestRemoteAddress(r)
+	m["user_agent"] = r.UserAgent()
+	m["referrer"] = getReferrerFromHeaderOrQuery(r)
+	hdr := r.Header
+	getHeader(hdr, "Accept-Language", "accept_accept_language", m)
+	getHeader(hdr, "Sec-CH-UA", "sec_ch_ua", m)
+	getHeader(hdr, "Sec-CH-UA-Mobile", "sec_ch_ua_mobile", m)
+	getHeader(hdr, "Sec-CH-UA-Platform", "sec_ch_ua_platform", m)
+	getHeader(hdr, "Sec-CH-UA-Platform-Version", "sec_ch_ua_platform_version", m)
+	getHeader(hdr, "Sec-CH-Width", "sec_ch_width", m)
+	getHeader(hdr, "Sec-CH-Viewport-Width", "sec_ch_viewport_width", m)
+}

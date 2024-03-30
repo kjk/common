@@ -69,9 +69,10 @@ func toStr(v any, buf *[]byte) string {
 	return string(*buf)
 }
 
-// Write writes key/value pairs to a record.
+// Write2 writes key/value pairs to a record.
 // After you write all key/value pairs, call Marshal()
 // to get serialized value (valid until next call to Reset())
+// Like Write() but accepts any type for key and value, not just strings
 func (r *Record) Write2(args ...any) error {
 	n := len(args)
 	if n == 0 || n%2 != 0 {
