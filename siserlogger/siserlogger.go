@@ -9,7 +9,7 @@ import (
 	"github.com/kjk/common/siser"
 )
 
-type Logger struct {
+type File struct {
 	siser   *siser.Writer
 	file    *filerotate.File
 	name    string
@@ -18,12 +18,12 @@ type Logger struct {
 	dir     string
 }
 
-func NewDaily(dir string, name string, didRotateFn func(path string)) (*Logger, error) {
+func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
-	res := &Logger{
+	res := &File{
 		dir:     absDir,
 		name:    name,
 		RecName: name,
@@ -35,7 +35,7 @@ func NewDaily(dir string, name string, didRotateFn func(path string)) (*Logger, 
 		}
 	}
 
-	res.file, err = filerotate.NewDaily(absDir, "slog-"+name+"-", didRotateInternal)
+	res.file, err = filerotate.NewDaily(absDir, name, didRotateInternal)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func NewDaily(dir string, name string, didRotateFn func(path string)) (*Logger, 
 	return res, nil
 }
 
-func (l *Logger) Write(d []byte) error {
+func (l *File) Write(d []byte) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.siser == nil {

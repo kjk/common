@@ -13,7 +13,7 @@ import (
 	"github.com/kjk/common/siser"
 )
 
-type Logger struct {
+type File struct {
 	rec   siser.Record // re-usable for performance
 	siser *siser.Writer
 	file  *filerotate.File
@@ -22,13 +22,13 @@ type Logger struct {
 	dir string
 }
 
-func New(dir string, didRotateFn func(path string)) (*Logger, error) {
+func New(dir string, didRotateFn func(path string)) (*File, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	res := &Logger{
+	res := &File{
 		dir: absDir,
 	}
 
@@ -64,7 +64,7 @@ func New(dir string, didRotateFn func(path string)) (*Logger, error) {
 	return res, nil
 }
 
-func (l *Logger) Close() error {
+func (l *File) Close() error {
 	err := l.file.Close()
 	l.file = nil
 	return err
@@ -140,7 +140,7 @@ func WriteToRecord(rec *siser.Record, r *http.Request, code int, size int64, dur
 	}
 }
 
-func (l *Logger) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
+func (l *File) LogReq(r *http.Request, code int, size int64, dur time.Duration) error {
 	if l == nil {
 		return nil
 	}
