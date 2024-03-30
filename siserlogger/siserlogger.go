@@ -43,12 +43,15 @@ func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, er
 	return res, nil
 }
 
-func (l *File) Write(d []byte) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.siser == nil {
+func (f *File) Write(d []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.siser == nil {
 		return nil
 	}
-	_, err := l.siser.Write(d, time.Now(), l.RecName)
+	_, err := f.siser.Write(d, time.Now(), f.RecName)
+	if err == nil {
+		err = f.file.Flush()
+	}
 	return err
 }

@@ -214,3 +214,14 @@ func IterReadDirFS(fsys fs.ReadDirFS, startDir string, cb func(string, fs.DirEnt
 	}
 	return nil
 }
+
+type syncer interface {
+	Sync() error
+}
+
+func MaybeSync(w io.Writer) error {
+	if f, ok := w.(syncer); ok {
+		return f.Sync()
+	}
+	return nil
+}
