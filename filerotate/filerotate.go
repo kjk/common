@@ -56,28 +56,28 @@ func New(config *Config) (*File, error) {
 	return file, nil
 }
 
-func MakeDailyRotateInDir(dir string, prefix string) func(time.Time, time.Time) string {
+func MakeDailyRotateInDir(dir string, fileUniqueName string) func(time.Time, time.Time) string {
 	return func(creationTime time.Time, now time.Time) string {
 		if IsSameDay(creationTime, now) {
 			return ""
 		}
 		name := now.Format("2006-01-02")
-		if prefix != "" {
-			name = "-" + prefix + "-" + name
+		if fileUniqueName != "" {
+			name = name + "-" + fileUniqueName
 		}
 		name += ".txt"
 		return filepath.Join(dir, name)
 	}
 }
 
-func MakeHourlyRotateInDir(dir string, logUniqueName string) func(time.Time, time.Time) string {
+func MakeHourlyRotateInDir(dir string, fileUniqueName string) func(time.Time, time.Time) string {
 	return func(creationTime time.Time, now time.Time) string {
 		if IsSameHour(creationTime, now) {
 			return ""
 		}
 		name := now.Format("2006-01-02_15")
-		if logUniqueName != "" {
-			name = "-" + logUniqueName + "-" + name
+		if fileUniqueName != "" {
+			name = name + "-" + fileUniqueName
 		}
 		name += ".txt"
 		return filepath.Join(dir, name)
@@ -85,8 +85,8 @@ func MakeHourlyRotateInDir(dir string, logUniqueName string) func(time.Time, tim
 }
 
 // NewDaily creates a new file, rotating daily in a given directory
-func NewDaily(dir string, logUniqueName string, didClose func(path string, didRotate bool)) (*File, error) {
-	daily := MakeDailyRotateInDir(dir, logUniqueName)
+func NewDaily(dir string, fileUniqueName string, didClose func(path string, didRotate bool)) (*File, error) {
+	daily := MakeDailyRotateInDir(dir, fileUniqueName)
 	config := Config{
 		DidClose:           didClose,
 		PathIfShouldRotate: daily,
