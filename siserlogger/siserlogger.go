@@ -10,12 +10,14 @@ import (
 )
 
 type File struct {
-	siser   *siser.Writer
-	file    *filerotate.File
-	name    string
+	// name of the record written to siser log
 	RecName string
-	mu      sync.Mutex
-	dir     string
+
+	siser *siser.Writer
+	file  *filerotate.File
+	name  string
+	mu    sync.Mutex
+	dir   string
 }
 
 func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, error) {
@@ -53,5 +55,12 @@ func (f *File) Write(d []byte) error {
 	if err == nil {
 		err = f.file.Flush()
 	}
+	return err
+}
+
+func (f *File) Close() error {
+	err := f.file.Close()
+	f.siser = nil
+	f.file = nil
 	return err
 }
