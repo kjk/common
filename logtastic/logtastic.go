@@ -190,7 +190,9 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 
 func LogEvent(r *http.Request, m map[string]interface{}) {
 	if r != nil {
-		httputil.GetRequestInfo(r, m)
+		http := map[string]interface{}{}
+		httputil.GetRequestInfo(r, http)
+		m["http"] = http
 	}
 
 	d, _ := json.Marshal(m)
