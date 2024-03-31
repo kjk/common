@@ -33,6 +33,7 @@ var (
 	Server         = ""
 	ApiKey         = ""
 	LogDir         = ""
+	BuildHash      = ""
 	FileLogs       *filerotate.File
 	FileErrors     *siserlogger.File
 	FileEvents     *siserlogger.File
@@ -171,15 +172,12 @@ func Log(s string) {
 
 func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	m := map[string]interface{}{}
-	httputil.GetRequestInfo(r, m)
-	if dur > 0 {
-		m["dur_ms"] = float64(dur) / float64(time.Millisecond)
-	}
-	if code >= 400 {
-		m["status"] = code
-	}
-	if size > 0 {
-		m["size"] = size
+	httputil.GetRequestInfo(r, m, "")
+	m["dur_ms"] = float64(dur) / float64(time.Millisecond)
+	m["status"] = code
+	m["size"] = size
+	if BuildHash != "" {
+		m["build_hash"] = BuildHash
 	}
 
 	d, _ := json.Marshal(m)
@@ -189,10 +187,9 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 }
 
 func LogEvent(r *http.Request, m map[string]interface{}) {
-	if r != nil {
-		http := map[string]interface{}{}
-		httputil.GetRequestInfo(r, http)
-		m["http"] = http
+	httputil.GetRequestInfo(r, m, "http")
+	if BuildHash != "" {
+		m["build_hash"] = BuildHash
 	}
 
 	d, _ := json.Marshal(m)
@@ -232,10 +229,12 @@ func LogError(r *http.Request, s string) {
 	writeSiserLog("errors", &FileErrors, []byte(s))
 
 	m := map[string]interface{}{}
-	if r != nil {
-		httputil.GetRequestInfo(r, m)
+	httputil.GetRequestInfo(r, m, "http")
+	m["error"] = s
+	if BuildHash != "" {
+		m["build_hash"] = BuildHash
 	}
-	m["msg"] = s
+	// m["callstack"] = getCallStack(1)
 	d, _ := json.Marshal(m)
 	logtasticPOST("/api/v1/error", d, mimeJSON)
 }

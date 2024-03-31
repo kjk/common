@@ -204,7 +204,15 @@ func getReferrerFromHeaderOrQuery(r *http.Request) string {
 	return referrer
 }
 
-func GetRequestInfo(r *http.Request, m map[string]interface{}) {
+func GetRequestInfo(r *http.Request, m map[string]interface{}, key string) {
+	if r == nil {
+		return
+	}
+	if key != "" {
+		nm := map[string]interface{}{}
+		m[key] = nm
+		m = nm
+	}
 	m["method"] = r.Method
 	m["url"] = r.URL.String()
 	m["ip"] = GetBestRemoteAddress(r)
