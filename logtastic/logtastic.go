@@ -30,9 +30,6 @@ const (
 )
 
 var (
-	// if true, will compress logs after closing with zstd level 3
-	// and rename to ${name}.zstd
-	CompressLogs   = false
 	Server         = ""
 	ApiKey         = ""
 	LogDir         = ""
