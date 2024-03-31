@@ -188,14 +188,15 @@ func (f *File) Write(d []byte) (int, error) {
 }
 
 // Write2 writes data to a file, optionally flushes. To enable users to later
-// seek to where the data was written, it returns name of the file where data
-// was written, offset at which the data was written, number of bytes and error
-func (f *File) Write2(d []byte, flush bool) (string, int64, int, error) {
+// seek to where the data was written, it returns offset at which the data was
+// written, number of bytes and error.
+// You can get path of the file from f.Path
+func (f *File) Write2(d []byte, flush bool) (int64, int, error) {
 	f.Lock()
 	defer f.Unlock()
 
 	writtenAtPos, n, err := f.write(d, flush)
-	return f.Path, writtenAtPos, n, err
+	return writtenAtPos, n, err
 }
 
 func (f *File) Close() error {
