@@ -297,33 +297,20 @@ func TestRecordSerializeSimple3(t *testing.T) {
 }
 
 func testVals(t *testing.T, vals []interface{}, exp string) {
+	var r Record
 	{
-		var r Record
 		for i := 0; i < len(vals); i += 2 {
 			r.Write(vals[i], vals[i+1])
 		}
 		got := string(r.Marshal())
 		assert.Equal(t, exp, got)
+		r.Reset()
 	}
 	{
-		var r Record
 		r.Write(vals...)
 		got := string(r.Marshal())
 		assert.Equal(t, exp, got)
-	}
-	{
-		var r Record
-		for i := 0; i < len(vals); i += 2 {
-			r.Write(vals[i], vals[i+1])
-		}
-		got := string(r.Marshal())
-		assert.Equal(t, exp, got)
-	}
-	{
-		var r Record
-		r.Write(vals...)
-		got := string(r.Marshal())
-		assert.Equal(t, exp, got)
+		r.Reset()
 	}
 }
 
@@ -336,6 +323,17 @@ b
 bu: gatti{space}
 no value:+0
 bu:   gatti
+`
+	// stupid editors remove trailing spaces
+	exp = strings.ReplaceAll(exp, "{space}", " ")
+	testVals(t, vals, exp)
+}
+
+func TestRecordSerializeSimple5(t *testing.T) {
+	vals := []interface{}{3, true, false, 88.3, 8, 99}
+	exp := `3: true
+false: 88.3
+8: 99
 `
 	// stupid editors remove trailing spaces
 	exp = strings.ReplaceAll(exp, "{space}", " ")

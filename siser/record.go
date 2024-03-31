@@ -40,6 +40,7 @@ type ReadRecord struct {
 	Entries []Entry
 }
 
+// perf: re-use buf
 func toStr(v any, buf *[]byte) string {
 	if s, ok := v.(string); ok {
 		return s
@@ -61,6 +62,7 @@ func (r *Record) Write(args ...any) error {
 	if n == 0 || n%2 != 0 {
 		return fmt.Errorf("invalid number of args: %d. Should be multiple of 2", len(args))
 	}
+
 	var buf []byte
 	for i := 0; i < n; i += 2 {
 		k := toStr(args[i], &buf)
