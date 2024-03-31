@@ -1,12 +1,14 @@
 package siserlogger
 
 import (
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/kjk/common/filerotate"
 	"github.com/kjk/common/siser"
+	"github.com/kjk/common/u"
 )
 
 type File struct {
@@ -32,7 +34,16 @@ func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, er
 	}
 
 	didRotateInternal := func(path string, didRotate bool) {
-		if didRotate && didRotateFn != nil {
+		if !didRotate {
+			return
+		}
+		dst := path + ".zstd"
+		err := u.ZstdCompressFile(dst, path)
+		if err == nil {
+			os.Remove(path)
+			path = dst
+		}
+		if didRotateFn != nil {
 			didRotateFn(path)
 		}
 	}
@@ -53,7 +64,7 @@ func (f *File) Write(d []byte) error {
 	}
 	_, err := f.siser.Write(d, time.Now(), f.RecName)
 	if err == nil {
-		err = f.file.Flush()
+		err = f.file.Sync()
 	}
 	return err
 }

@@ -159,7 +159,7 @@ func (f *File) reopenIfNeeded() error {
 	return f.open(newPath)
 }
 
-func (f *File) write(d []byte, flush bool) (int64, int, error) {
+func (f *File) write(d []byte, sync bool) (int64, int, error) {
 	err := f.reopenIfNeeded()
 	if err != nil {
 		return 0, 0, err
@@ -172,7 +172,7 @@ func (f *File) write(d []byte, flush bool) (int64, int, error) {
 	if err != nil {
 		return 0, n, err
 	}
-	if flush {
+	if sync {
 		err = f.file.Sync()
 	}
 	return f.lastWritePos, n, err
@@ -187,15 +187,15 @@ func (f *File) Write(d []byte) (int, error) {
 	return n, err
 }
 
-// Write2 writes data to a file, optionally flushes. To enable users to later
+// Write2 writes data to a file, optionally syncs to disk. To enable users to later
 // seek to where the data was written, it returns offset at which the data was
 // written, number of bytes and error.
 // You can get path of the file from f.Path
-func (f *File) Write2(d []byte, flush bool) (int64, int, error) {
+func (f *File) Write2(d []byte, sync bool) (int64, int, error) {
 	f.Lock()
 	defer f.Unlock()
 
-	writtenAtPos, n, err := f.write(d, flush)
+	writtenAtPos, n, err := f.write(d, sync)
 	return writtenAtPos, n, err
 }
 
@@ -206,8 +206,8 @@ func (f *File) Close() error {
 	return f.close(false)
 }
 
-// Flush flushes the file
-func (f *File) Flush() error {
+// Sync commits the current contents of the file to stable storage.
+func (f *File) Sync() error {
 	f.Lock()
 	defer f.Unlock()
 

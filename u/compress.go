@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 )
 
 // implement io.ReadCloser over os.File wrapped with io.Reader.
@@ -351,4 +352,44 @@ func BrCompressFile(path string) error {
 		return err
 	}
 	return os.WriteFile(path+".br", d2, 0644)
+}
+
+func ZstdCompressFile(dst string, src string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	zw, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	// in my tests:
+	// - zstd.SpeedBestCompression is much slower and not much better
+	// - higher concurrency is slower than 2, concurrency 1 produces
+	// much larger files (seems like a bug)
+	w, err := zstd.NewWriter(zw, zstd.WithEncoderLevel(zstd.SpeedBetterCompression), zstd.WithEncoderConcurrency(2))
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, f)
+	if err != nil {
+		zw.Close()
+		os.Remove(dst)
+		return err
+	}
+
+	err = w.Close()
+	if err != nil {
+		zw.Close()
+		os.Remove(dst)
+		return err
+	}
+
+	err = zw.Close()
+	if err != nil {
+		os.Remove(dst)
+		return err
+	}
+	return nil
 }

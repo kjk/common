@@ -30,9 +30,10 @@ const (
 )
 
 var (
-	LoggingEnabled = false
-	Server         = "127.0.0.1:9327"
-	// logtasticServer = "l.arslexis.io"
+	// if true, will compress logs after closing with zstd level 3
+	// and rename to ${name}.zstd
+	CompressLogs   = false
+	Server         = ""
 	ApiKey         = ""
 	LogDir         = ""
 	FileLogs       *filerotate.File
@@ -84,24 +85,24 @@ func logtasticWorker() {
 }
 
 func Stop() {
-	LoggingEnabled = false
+	Server = ""
 	ch <- op{uri: kPleaseStop}
 	if FileLogs != nil {
 		FileLogs.Close()
 	}
-	// if FileErrors != nil {
-	// 	FileErrors.Close()
-	// }
-	// if FileEvents != nil {
-	// 	FileEvents.Close()
-	// }
-	// if FileHits != nil {
-	// 	FileHits.Close()
-	// }
+	if FileErrors != nil {
+		FileErrors.Close()
+	}
+	if FileEvents != nil {
+		FileEvents.Close()
+	}
+	if FileHits != nil {
+		FileHits.Close()
+	}
 }
 
 func logtasticPOST(uriPath string, d []byte, mime string) {
-	if !LoggingEnabled || Server == "" {
+	if Server == "" {
 		return
 	}
 	startLogWorker.Do(func() {
