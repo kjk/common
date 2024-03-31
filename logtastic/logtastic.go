@@ -13,6 +13,7 @@ import (
 	"github.com/kjk/common/filerotate"
 	"github.com/kjk/common/httputil"
 	"github.com/kjk/common/siserlogger"
+	"github.com/kjk/common/u"
 )
 
 type op struct {
@@ -234,7 +235,7 @@ func LogError(r *http.Request, s string) {
 	if BuildHash != "" {
 		m["build_hash"] = BuildHash
 	}
-	// m["callstack"] = getCallStack(1)
+	m["callstack"] = u.GetCallstack(1)
 	d, _ := json.Marshal(m)
 	logtasticPOST("/api/v1/error", d, mimeJSON)
 }

@@ -3,6 +3,7 @@ package u
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -61,4 +62,36 @@ func IsWinOrMac() bool {
 
 func IsLinux() bool {
 	return strings.Contains(runtime.GOOS, "linux")
+}
+
+func GetCallstackFrames(skipFrames int) []string {
+	var callers [32]uintptr
+	n := runtime.Callers(skipFrames+1, callers[:])
+	frames := runtime.CallersFrames(callers[:n])
+	var cs []string
+	for {
+		frame, more := frames.Next()
+		if !more {
+			break
+		}
+		s := frame.File + ":" + strconv.Itoa(frame.Line)
+		cs = append(cs, s)
+	}
+	return cs
+}
+
+func GetCallstack(skipFrames int) string {
+	frames := GetCallstackFrames(skipFrames + 1)
+	return strings.Join(frames, "\n")
+}
+
+func Push[S ~[]E, E any](s *S, els ...E) {
+	*s = append(*s, els...)
+}
+
+func SliceLimit[S ~[]E, E any](s S, max int) S {
+	if len(s) > max {
+		return s[:max]
+	}
+	return s
 }
