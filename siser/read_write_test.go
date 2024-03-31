@@ -296,7 +296,7 @@ func TestRecordSerializeSimple3(t *testing.T) {
 	assert.Equal(t, exp, got)
 }
 
-func testVals(t *testing.T, vals []string, exp string) {
+func testVals(t *testing.T, vals []interface{}, exp string) {
 	{
 		var r Record
 		for i := 0; i < len(vals); i += 2 {
@@ -314,25 +314,21 @@ func testVals(t *testing.T, vals []string, exp string) {
 	{
 		var r Record
 		for i := 0; i < len(vals); i += 2 {
-			r.Write2(vals[i], vals[i+1])
+			r.Write(vals[i], vals[i+1])
 		}
 		got := string(r.Marshal())
 		assert.Equal(t, exp, got)
 	}
 	{
 		var r Record
-		valsAny := make([]any, len(vals))
-		for i := 0; i < len(vals); i++ {
-			valsAny[i] = vals[i]
-		}
-		r.Write2(valsAny...)
+		r.Write(vals...)
 		got := string(r.Marshal())
 		assert.Equal(t, exp, got)
 	}
 }
 
 func TestRecordSerializeSimple4(t *testing.T) {
-	vals := []string{"k2", "a\nb", "", "no name", "bu", "gatti ", "no value", "", "bu", "  gatti"}
+	vals := []interface{}{"k2", "a\nb", "", "no name", "bu", "gatti ", "no value", "", "bu", "  gatti"}
 	exp := `k2:+3
 a
 b
@@ -458,13 +454,13 @@ type testRecJSON struct {
 func BenchmarkSiserMarshalWriteMany(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		rec.Write("uri", "/atom.xml")
-		rec.Write2("code", 200)
+		rec.Write("code", 200)
 		rec.Write("ip", "54.186.248.49")
 		durMs := float64(1.41) / float64(time.Millisecond)
 		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
 		rec.Write("dur", durStr)
 		rec.Write("when", time.Now().Format(time.RFC3339))
-		rec.Write2("size", 35286)
+		rec.Write("size", 35286)
 		rec.Write("ua", "Feedspot http://www.feedspot.com")
 		rec.Write("referer", "http://blog.kowalczyk.info/feed")
 		// assign to global to prevents optimizing the loop
@@ -477,24 +473,6 @@ func BenchmarkSiserMarshalWriteSingle(b *testing.B) {
 		durMs := float64(1.41) / float64(time.Millisecond)
 		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
 		rec.Write(
-			"uri", "/atom.xml",
-			"code", strconv.Itoa(200),
-			"ip", "54.186.248.49",
-			"dur", durStr,
-			"when", time.Now().Format(time.RFC3339),
-			"size", strconv.Itoa(35286),
-			"ua", "Feedspot http://www.feedspot.com",
-			"referer", "http://blog.kowalczyk.info/feed")
-		// assign to global to prevents optimizing the loop
-		globalData = rec.Marshal()
-	}
-}
-
-func BenchmarkSiserMarshalWrite2Single(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		durMs := float64(1.41) / float64(time.Millisecond)
-		durStr := strconv.FormatFloat(durMs, 'f', 2, 64)
-		rec.Write2(
 			"uri", "/atom.xml",
 			"code", 200,
 			"ip", "54.186.248.49",
@@ -530,7 +508,7 @@ func BenchmarkJSONMarshal(b *testing.B) {
 func genSerializedSiser() {
 	var rec Record
 	rec.Write("uri", "/atom.xml")
-	rec.Write2("code", 200)
+	rec.Write("code", 200)
 	rec.Write("ip", "54.186.248.49")
 	durMs := float64(1.41) / float64(time.Millisecond)
 	durStr := strconv.FormatFloat(durMs, 'f', 2, 64)

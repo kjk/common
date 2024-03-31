@@ -40,40 +40,23 @@ type ReadRecord struct {
 	Entries []Entry
 }
 
-// Write writes key/value pairs to a record.
-// After you write all key/value pairs, call Marshal()
-// to get serialized value (valid until next call to Reset())
-func (r *Record) Write(args ...string) error {
-	n := len(args)
-	if n == 0 || n%2 != 0 {
-		return fmt.Errorf("invalid number of args: %d. Should be multiple of 2", len(args))
-	}
-	for i := 0; i < n; i += 2 {
-		k := args[i]
-		v := args[i+1]
-		r.marshalKeyVal(k, v)
-	}
-	return nil
-}
-
 func toStr(v any, buf *[]byte) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
+	*buf = (*buf)[:0]
 	if i, ok := v.(int); ok {
 		*buf = strconv.AppendInt(*buf, int64(i), 10)
 		return string(*buf)
 	}
-	*buf = (*buf)[:0]
 	*buf = fmt.Appendf(*buf, "%v", v)
 	return string(*buf)
 }
 
-// Write2 writes key/value pairs to a record.
+// Write writes key/value pairs to a record.
 // After you write all key/value pairs, call Marshal()
 // to get serialized value (valid until next call to Reset())
-// Like Write() but accepts any type for key and value, not just strings
-func (r *Record) Write2(args ...any) error {
+func (r *Record) Write(args ...any) error {
 	n := len(args)
 	if n == 0 || n%2 != 0 {
 		return fmt.Errorf("invalid number of args: %d. Should be multiple of 2", len(args))
