@@ -30,8 +30,19 @@ func (rc *readerWrappedFile) Read(p []byte) (int, error) {
 	return rc.r.Read(p)
 }
 
+func wrapInReadeCloser(f *os.File, r io.Reader, err error) (io.ReadCloser, error) {
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return &readerWrappedFile{
+		f: f,
+		r: r,
+	}, nil
+}
+
 // OpenFileMaybeCompressed opens a file that might be compressed with gzip
-// or bzip2.
+// or bzip2 or zstd
 // TODO: could sniff file content instead of checking file extension
 func OpenFileMaybeCompressed(path string) (io.ReadCloser, error) {
 	ext := strings.ToLower(filepath.Ext(path))
@@ -41,23 +52,15 @@ func OpenFileMaybeCompressed(path string) (io.ReadCloser, error) {
 	}
 	if ext == ".gz" {
 		r, err := gzip.NewReader(f)
-		if err != nil {
-			f.Close()
-			return nil, err
-		}
-		rc := &readerWrappedFile{
-			f: f,
-			r: r,
-		}
-		return rc, nil
+		return wrapInReadeCloser(f, r, err)
 	}
 	if ext == ".bz2" {
 		r := bzip2.NewReader(f)
-		rc := &readerWrappedFile{
-			f: f,
-			r: r,
-		}
-		return rc, nil
+		return wrapInReadeCloser(f, r, err)
+	}
+	if ext == ".zstd" {
+		r, err := zstd.NewReader(f)
+		return wrapInReadeCloser(f, r, err)
 	}
 	return f, nil
 }
@@ -354,42 +357,88 @@ func BrCompressFile(path string) error {
 	return os.WriteFile(path+".br", d2, 0644)
 }
 
-func ZstdCompressFile(dst string, src string) error {
-	f, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	zw, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
+func zstdNewWriter(dst io.Writer) (*zstd.Encoder, error) {
 	// in my tests:
 	// - zstd.SpeedBestCompression is much slower and not much better
-	// - higher concurrency is slower than 2, concurrency 1 produces
-	// much larger files (seems like a bug)
-	w, err := zstd.NewWriter(zw, zstd.WithEncoderLevel(zstd.SpeedBetterCompression), zstd.WithEncoderConcurrency(2))
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(w, f)
-	if err != nil {
-		zw.Close()
-		os.Remove(dst)
-		return err
-	}
+	// - default concurrency is GONUMPROCS() but adding concurrency of any value
+	//   doesn't consistently speed things up
+	return zstd.NewWriter(dst, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+}
 
+func ZstdCompressData(d []byte) ([]byte, error) {
+	var dst bytes.Buffer
+	w, err := zstdNewWriter(&dst)
+	if err != nil {
+		return nil, err
+	}
+	_, err = w.Write(d)
+	if err != nil {
+		return nil, err
+	}
 	err = w.Close()
 	if err != nil {
+		return nil, err
+	}
+	return dst.Bytes(), nil
+}
+
+func ZstdDecompressData(d []byte) ([]byte, error) {
+	r := bytes.NewReader(d)
+	zr, err := zstd.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	return io.ReadAll(zr)
+}
+
+func ZstdCompressFile(dst string, src string) error {
+	fSrc, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer fSrc.Close()
+	fDst, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	zw, err := zstdNewWriter(fDst)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(zw, fSrc)
+	if err != nil {
 		zw.Close()
+		fDst.Close()
 		os.Remove(dst)
 		return err
 	}
 
 	err = zw.Close()
 	if err != nil {
+		fDst.Close()
+		os.Remove(dst)
+		return err
+	}
+
+	err = fDst.Close()
+	if err != nil {
 		os.Remove(dst)
 		return err
 	}
 	return nil
+}
+
+func ZstdReadFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r, err := zstd.NewReader(f)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
 }
