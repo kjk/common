@@ -56,7 +56,7 @@ func OpenFileMaybeCompressed(path string) (io.ReadCloser, error) {
 	}
 	if ext == ".bz2" {
 		r := bzip2.NewReader(f)
-		return wrapInReadeCloser(f, r, err)
+		return wrapInReadeCloser(f, r, nil)
 	}
 	if ext == ".zstd" {
 		r, err := zstd.NewReader(f)
@@ -64,7 +64,7 @@ func OpenFileMaybeCompressed(path string) (io.ReadCloser, error) {
 	}
 	if ext == ".br" {
 		r := brotli.NewReader(f)
-		return wrapInReadeCloser(f, r, err)
+		return wrapInReadeCloser(f, r, nil)
 	}
 	return f, nil
 }
@@ -77,59 +77,6 @@ func ReadFileMaybeCompressed(path string) ([]byte, error) {
 	}
 	defer r.Close()
 	return io.ReadAll(r)
-}
-
-// WriteFileGzipped writes data to a path, using best gzip compression
-func WriteFileGzipped(path string, data []byte) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	w, err := gzip.NewWriterLevel(f, gzip.BestCompression)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(data)
-	if err != nil {
-		f.Close()
-		os.Remove(path)
-		return err
-	}
-	err = w.Close()
-	if err != nil {
-		f.Close()
-		os.Remove(path)
-		return err
-	}
-	err = f.Close()
-	if err != nil {
-		os.Remove(path)
-		return err
-	}
-	return nil
-}
-
-// GzipFile compresses srcPath with gzip and saves as dstPath
-func GzipFile(dstPath, srcPath string) error {
-	fSrc, err := os.Open(srcPath)
-	if err != nil {
-		return err
-	}
-	defer fSrc.Close()
-	fDst, err := os.Create(dstPath)
-	if err != nil {
-		return err
-	}
-	defer fDst.Close()
-	w, err := gzip.NewWriterLevel(fDst, gzip.BestCompression)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(w, fSrc)
-	if err != nil {
-		return err
-	}
-	return w.Close()
 }
 
 func ZipDir(dirToZip string) ([]byte, error) {
@@ -335,13 +282,94 @@ func ReadZipData(zipData []byte) (map[string][]byte, error) {
 	return res, nil
 }
 
-func getErr(errs ...error) error {
-	for _, err := range errs {
-		if err != nil {
-			return err
-		}
+// WriteFileGzipped writes data to a path, using best gzip compression
+func WriteFileGzipped(path string, data []byte) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	w, err := gzip.NewWriterLevel(f, gzip.BestCompression)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		f.Close()
+		os.Remove(path)
+		return err
+	}
+	err = w.Close()
+	if err != nil {
+		f.Close()
+		os.Remove(path)
+		return err
+	}
+	err = f.Close()
+	if err != nil {
+		os.Remove(path)
+		return err
 	}
 	return nil
+}
+
+func GzipCompressData(d []byte) ([]byte, error) {
+	var dst bytes.Buffer
+	w, err := gzip.NewWriterLevel(&dst, gzip.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	_, err = w.Write(d)
+	err2 := w.Close()
+	if err = GetErr(err, err2); err != nil {
+		return nil, err
+	}
+	return dst.Bytes(), nil
+}
+
+func GzipDecompressData(d []byte) ([]byte, error) {
+	r := bytes.NewReader(d)
+	zr, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	return io.ReadAll(zr)
+}
+
+func GzipCompressFile(dstPath, srcPath string) error {
+	fSrc, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer fSrc.Close()
+	fDst, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer fDst.Close()
+	w, err := gzip.NewWriterLevel(fDst, gzip.BestCompression)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, fSrc)
+	if err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func GzipReadFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
 }
 
 func BrCompressData(d []byte, level int) ([]byte, error) {
@@ -349,7 +377,7 @@ func BrCompressData(d []byte, level int) ([]byte, error) {
 	w := brotli.NewWriterLevel(&dst, level)
 	_, err := w.Write(d)
 	err2 := w.Close()
-	if err = getErr(err, err2); err != nil {
+	if err = GetErr(err, err2); err != nil {
 		return nil, err
 	}
 	return dst.Bytes(), nil
@@ -361,6 +389,12 @@ func BrCompressDataBest(d []byte) ([]byte, error) {
 
 func BrCompressDataDefault(d []byte) ([]byte, error) {
 	return BrCompressData(d, brotli.DefaultCompression)
+}
+
+func BrDecompressData(d []byte) ([]byte, error) {
+	r := bytes.NewReader(d)
+	zr := brotli.NewReader(r)
+	return io.ReadAll(zr)
 }
 
 func BrCompressFile(dstPath string, path string, level int) error {
@@ -381,6 +415,16 @@ func BrCompressFileDefault(dstPath string, path string) error {
 
 func BrCompressFileBest(dstPath string, path string) error {
 	return BrCompressFile(dstPath, path, brotli.BestCompression)
+}
+
+func BrReadFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r := brotli.NewReader(f)
+	return io.ReadAll(r)
 }
 
 func zstdNewWriter(dst io.Writer) (*zstd.Encoder, error) {
@@ -436,7 +480,7 @@ func ZstdCompressFile(dst string, src string) error {
 	err2 := zw.Close()
 	err3 := fDst.Close()
 
-	err = getErr(err, err2, err3)
+	err = GetErr(err, err2, err3)
 	if err != nil {
 		os.Remove(dst)
 		return err

@@ -48,6 +48,15 @@ func PanicIfErr(err error, args ...interface{}) {
 	panic(s)
 }
 
+func GetErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func IsWindows() bool {
 	return strings.Contains(runtime.GOOS, "windows")
 }
