@@ -37,8 +37,8 @@ func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, er
 		if !didRotate {
 			return
 		}
-		dst := path + ".zstd"
-		err := u.ZstdCompressFile(dst, path)
+		dst := path + ".br"
+		err := u.BrCompressFileDefault(dst, path)
 		if err == nil {
 			os.Remove(path)
 			path = dst

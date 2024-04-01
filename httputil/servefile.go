@@ -152,7 +152,7 @@ func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, opts *ServeFileOpt
 			if err != nil {
 				return false
 			}
-			brData, err = u.BrCompressData(d)
+			brData, err = u.BrCompressDataBest(d)
 			if err != nil {
 				return false
 			}

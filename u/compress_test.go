@@ -45,7 +45,8 @@ func testCompressDecompressData(t *testing.T, compress func([]byte) ([]byte, err
 }
 
 func TestZstdData(t *testing.T) {
-	testCompressDecompressData(t, ZstdCompressData, ZstdDecompressData)
+	testCompressDecompressData(t, ZstdCompressDataBest, ZstdDecompressData)
+	testCompressDecompressData(t, ZstdCompressDataDefault, ZstdDecompressData)
 }
 
 func TestBrData(t *testing.T) {
@@ -89,5 +90,6 @@ func TestBrFile(t *testing.T) {
 
 func TestZstdFile(t *testing.T) {
 	path := "compress.go"
-	testCompressDecompressFile(t, path, path+".zstd", ZstdCompressFile, ZstdReadFile)
+	testCompressDecompressFile(t, path, path+".zstd", ZstdCompressFileBest, ZstdReadFile)
+	testCompressDecompressFile(t, path, path+".zstd", ZstdCompressFileDefault, ZstdReadFile)
 }
