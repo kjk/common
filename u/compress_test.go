@@ -61,3 +61,29 @@ func testZstdFile(t *testing.T, path string) {
 func TestZstdFile(t *testing.T) {
 	testZstdFile(t, "compress.go")
 }
+
+func testBrFile(t *testing.T, path string) {
+	d, err := os.ReadFile(path)
+	assert.Nil(t, err)
+
+	dstPath := path + ".br"
+	err = BrCompressFileBest(dstPath, path)
+	defer os.Remove(dstPath)
+	assert.Nil(t, err)
+
+	// {
+	// 	d2, err := ZstdReadFile(dstPath)
+	// 	assert.Nil(t, err)
+	// 	assert.Equal(t, d, d2)
+	// }
+	{
+		d2, err := ReadFileMaybeCompressed(dstPath)
+		assert.Nil(t, err)
+		assert.Equal(t, d, d2)
+	}
+
+}
+
+func TestBrFile(t *testing.T) {
+	testBrFile(t, "compress.go")
+}
