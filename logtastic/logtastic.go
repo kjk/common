@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carlmjohnson/requests"
@@ -31,17 +32,20 @@ const (
 )
 
 var (
-	Server         = ""
-	ApiKey         = ""
-	LogDir         = ""
-	BuildHash      = ""
-	FileLogs       *filerotate.File
-	FileErrors     *siserlogger.File
-	FileEvents     *siserlogger.File
-	FileHits       *siserlogger.File
-	throttleUntil  time.Time
-	ch             = make(chan op, 1000)
-	startLogWorker sync.Once
+	Server           = ""
+	ApiKey           = ""
+	LogDir           = ""
+	BuildHash        = ""
+	FileLogs         *filerotate.File
+	FileErrors       *siserlogger.File
+	FileEvents       *siserlogger.File
+	FileHits         *siserlogger.File
+	throttleUntil    time.Time
+	lastThrottleLog  time.Time
+	logWorkerCh      = make(chan op, 1000)
+	startLogWorker   sync.Once
+	logWorkerStopped sync.WaitGroup
+	isShuttingDown   atomic.Bool
 )
 
 func ctx() context.Context {
@@ -57,12 +61,22 @@ func logf(s string, args ...interface{}) {
 
 func logtasticWorker() {
 	logf("logtasticWorker started\n")
-	for op := range ch {
+	logWorkerStopped.Add(1)
+	for op := range logWorkerCh {
 		// logfLocal("logtasticPOST %s\n", op.uri)
 		uri := op.uri
 		if uri == kPleaseStop {
 			break
 		}
+		throttleLeft := time.Until(throttleUntil)
+		if throttleLeft > 0 {
+			if time.Since(lastThrottleLog) > time.Second*10 {
+				logf(" skipping because throttling for %s\n", throttleLeft)
+				lastThrottleLog = time.Now()
+			}
+			continue
+		}
+
 		d := op.d
 		mime := op.mime
 		r := requests.
@@ -80,12 +94,18 @@ func logtasticWorker() {
 			throttleUntil = time.Now().Add(throttleTimeout)
 		}
 	}
+	close(logWorkerCh)
+	logWorkerStopped.Done()
 	logf("logtasticWorker stopped\n")
 }
 
 func Stop() {
+	isShuttingDown.Store(true)
 	Server = ""
-	ch <- op{uri: kPleaseStop}
+	logWorkerCh <- op{uri: kPleaseStop}
+	logf("Stop: waiting for logWorkerStopped\n")
+	logWorkerStopped.Wait()
+	logf("Stop: logWorkerDidStop\n")
 	if FileLogs != nil {
 		FileLogs.Close()
 	}
@@ -108,12 +128,6 @@ func logtasticPOST(uriPath string, d []byte, mime string) {
 		go logtasticWorker()
 	})
 
-	throttleLeft := time.Until(throttleUntil)
-	if throttleLeft > 0 {
-		logf(" skipping because throttling for %s\n", throttleLeft)
-		return
-	}
-
 	uri := "http://" + Server + uriPath
 	// logfLocal("logtasticPOST %s\n", uri)
 	op := op{
@@ -123,9 +137,9 @@ func logtasticPOST(uriPath string, d []byte, mime string) {
 	}
 
 	select {
-	case ch <- op:
+	case logWorkerCh <- op:
 	default:
-		logf("logtasticPOST %s failed: channel full\n", uri)
+		logf("logtasticPOST %s failed: channel full or closed\n", uri)
 	}
 }
 
@@ -166,12 +180,18 @@ func writeSiserLog(name string, lPtr **siserlogger.File, d []byte) {
 }
 
 func Log(s string) {
+	if isShuttingDown.Load() {
+		return
+	}
 	d := []byte(s)
 	writeLog(d)
 	logtasticPOST("/api/v1/log", d, mimePlainText)
 }
 
 func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
+	if isShuttingDown.Load() {
+		return
+	}
 	m := map[string]interface{}{}
 	httputil.GetRequestInfo(r, m, "")
 	m["dur_ms"] = float64(dur) / float64(time.Millisecond)
@@ -188,6 +208,9 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 }
 
 func LogEvent(r *http.Request, m map[string]interface{}) {
+	if isShuttingDown.Load() {
+		return
+	}
 	httputil.GetRequestInfo(r, m, "http")
 	if BuildHash != "" {
 		m["build_hash"] = BuildHash
@@ -206,6 +229,11 @@ func HandleEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if isShuttingDown.Load() {
+		http.Error(w, "Server shutting down", http.StatusMethodNotAllowed)
+		return
+	}
+
 	d, err := io.ReadAll(r.Body)
 	if err != nil {
 		logf("failed to read body: %v\n", err)
@@ -227,6 +255,9 @@ func HandleEvent(w http.ResponseWriter, r *http.Request) {
 // TODO: send server build hash so we can auto-link callstack lines
 // to	source code on github
 func LogError(r *http.Request, s string) {
+	if isShuttingDown.Load() {
+		return
+	}
 	writeSiserLog("errors", &FileErrors, []byte(s))
 
 	m := map[string]interface{}{}
