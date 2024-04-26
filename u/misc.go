@@ -1,13 +1,17 @@
 package u
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"mime"
+	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -190,4 +194,38 @@ func slug(s string, lowerCase bool) string {
 		s = s[:128]
 	}
 	return s
+}
+
+func UpdateGoDeps(dir string, noProxy bool) error {
+	{
+		cmd := exec.Command("go", "get", "-u", ".")
+		cmd.Dir = dir
+		if noProxy {
+			cmd.Env = append(os.Environ(), "GOPROXY=direct")
+		}
+		fmt.Printf("running: %s in dir '%s'\n", cmd.String(), cmd.Dir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		if err != nil {
+			return err
+		}
+	}
+	{
+		cmd := exec.Command("go", "mod", "tidy")
+		cmd.Dir = dir
+		fmt.Printf("running: %s in dir '%s'\n", cmd.String(), cmd.Dir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		return err
+	}
+}
+
+func WaitForSigIntOrKill() {
+	// Ctrl-C sends SIGINT
+	ctx := context.Background()
+	sctx, stop := signal.NotifyContext(ctx, os.Interrupt /*SIGINT*/, os.Kill /* SIGKILL */, syscall.SIGTERM)
+	defer stop()
+	<-sctx.Done()
 }
