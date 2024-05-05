@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -188,6 +189,19 @@ func Log(s string) {
 	logtasticPOST("/api/v1/log", d, mimePlainText)
 }
 
+var userAgentBlacklist = []string{"OhDear.app", "(StatusCake)", "GoogleOther", "AhrefsBot/", "YandexBot/", "DotBot/", "Twitterbot/", "ClaudeBot/", "bingbot/", "Bytespider", "CensysInspect/", "Googlebot/", "coccocbot-web/", "PetalBot"}
+
+// we don't want to log noise, just real user requests
+func skipRemoteLog(r *http.Request) bool {
+	ua := r.UserAgent()
+	for _, s := range userAgentBlacklist {
+		if strings.Contains(ua, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	if isShuttingDown.Load() {
 		return
@@ -204,6 +218,9 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	d, _ := json.Marshal(m)
 	writeSiserLog("hit", &FileHits, d)
 
+	if skipRemoteLog(r) {
+		return
+	}
 	logtasticPOST("/api/v1/hit", d, mimeJSON)
 }
 
