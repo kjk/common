@@ -85,6 +85,9 @@ func parseGitStatusLineMust(s string) *gitChange {
 func detectExesMust() {
 	gitPath = detectExeMust("git")
 	path := `C:\Program Files\WinMerge\WinMergeU.exe`
+	if !PathExists(path) {
+		path = `C:\Users\kjk\AppData\Local\Programs\WinMerge\WinMergeU.exe`
+	}
 	if PathExists(path) {
 		winMergePath = path
 		return
