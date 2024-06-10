@@ -30,6 +30,7 @@ const (
 	throttleTimeout = time.Second * 15
 
 	kPleaseStop = "please-stop"
+	kMaxURLLen  = 1024
 )
 
 var (
@@ -208,6 +209,10 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	}
 	m := map[string]interface{}{}
 	httputil.GetRequestInfo(r, m, "")
+	uri := m["url"].(string)
+	if len(uri) > kMaxURLLen {
+		m["url"] = uri[:kMaxURLLen]
+	}
 	m["dur_ms"] = float64(dur) / float64(time.Millisecond)
 	m["status"] = code
 	m["size"] = size
