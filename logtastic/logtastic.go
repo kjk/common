@@ -156,7 +156,7 @@ func writeLog(d []byte) {
 	}
 	if FileLogs == nil {
 		var err error
-		FileLogs, err = filerotate.NewDaily(LogDir, "log", nil)
+		FileLogs, err = filerotate.NewDaily(LogDir, "log.txt", nil)
 		if err != nil {
 			logf("failed to open log file logs: %v\n", err)
 			return
@@ -221,7 +221,7 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	}
 
 	d, _ := json.Marshal(m)
-	writeSiserLog("hit", &FileHits, d)
+	writeSiserLog("hit.txt", &FileHits, d)
 
 	if skipRemoteLog(r) {
 		return
@@ -239,7 +239,7 @@ func LogEvent(r *http.Request, m map[string]interface{}) {
 	}
 
 	d, _ := json.Marshal(m)
-	writeSiserLog("event", &FileEvents, d)
+	writeSiserLog("event.txt", &FileEvents, d)
 
 	logtasticPOST("/api/v1/event", d, mimeJSON)
 }
@@ -280,7 +280,7 @@ func LogError(r *http.Request, s string) {
 	if isShuttingDown.Load() {
 		return
 	}
-	writeSiserLog("errors", &FileErrors, []byte(s))
+	writeSiserLog("errors.txt", &FileErrors, []byte(s))
 
 	m := map[string]interface{}{}
 	httputil.GetRequestInfo(r, m, "http")

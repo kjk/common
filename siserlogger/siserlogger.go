@@ -15,22 +15,22 @@ type File struct {
 	// name of the record written to siser log
 	RecName string
 
-	siser *siser.Writer
-	file  *filerotate.File
-	name  string
-	mu    sync.Mutex
-	dir   string
+	siser          *siser.Writer
+	file           *filerotate.File
+	fileNameSuffix string
+	mu             sync.Mutex
+	dir            string
 }
 
-func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, error) {
+func NewDaily(dir string, fileNameSuffix string, didRotateFn func(path string)) (*File, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
 	res := &File{
-		dir:     absDir,
-		name:    name,
-		RecName: name,
+		dir:            absDir,
+		fileNameSuffix: fileNameSuffix,
+		RecName:        fileNameSuffix,
 	}
 
 	didRotateInternal := func(path string, didRotate bool) {
@@ -48,7 +48,7 @@ func NewDaily(dir string, name string, didRotateFn func(path string)) (*File, er
 		}
 	}
 
-	res.file, err = filerotate.NewDaily(absDir, name, didRotateInternal)
+	res.file, err = filerotate.NewDaily(absDir, fileNameSuffix, didRotateInternal)
 	if err != nil {
 		return nil, err
 	}
