@@ -56,30 +56,32 @@ func New(config *Config) (*File, error) {
 	return file, nil
 }
 
-func MakeDailyRotateInDir(dir string, fileUniqueName string) func(time.Time, time.Time) string {
+func MakeDailyRotateInDir(dir string, fileNameSuffix string) func(time.Time, time.Time) string {
 	return func(creationTime time.Time, now time.Time) string {
 		if IsSameDay(creationTime, now) {
 			return ""
 		}
 		name := now.Format("2006-01-02")
-		if fileUniqueName != "" {
-			name = name + "-" + fileUniqueName
+		if fileNameSuffix != "" {
+			name = name + "-" + fileNameSuffix
+		} else {
+			name += ".txt"
 		}
-		name += ".txt"
 		return filepath.Join(dir, name)
 	}
 }
 
-func MakeHourlyRotateInDir(dir string, fileUniqueName string) func(time.Time, time.Time) string {
+func MakeHourlyRotateInDir(dir string, fileNameSuffix string) func(time.Time, time.Time) string {
 	return func(creationTime time.Time, now time.Time) string {
 		if IsSameHour(creationTime, now) {
 			return ""
 		}
 		name := now.Format("2006-01-02_15")
-		if fileUniqueName != "" {
-			name = name + "-" + fileUniqueName
+		if fileNameSuffix != "" {
+			name = name + "-" + fileNameSuffix
+		} else {
+			name += ".txt"
 		}
-		name += ".txt"
 		return filepath.Join(dir, name)
 	}
 }
