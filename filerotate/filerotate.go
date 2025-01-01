@@ -32,7 +32,7 @@ type File struct {
 }
 
 func IsSameDay(t1, t2 time.Time) bool {
-	return t1.YearDay() == t2.YearDay()
+	return t1.YearDay() == t2.YearDay() && t1.Year() == t2.Year()
 }
 
 func IsSameHour(t1, t2 time.Time) bool {
