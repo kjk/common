@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -23,7 +24,9 @@ type Store struct {
 	IndexFileName string
 	DataFileName  string
 
-	Records []Record // In-memory cache of records, can be used for quick access
+	indexFilePath string
+	dataFilePath  string
+	Records       []Record // In-memory cache of records, can be used for quick access
 }
 
 // returns offset at which the data was written
@@ -61,13 +64,23 @@ func appendToFileRobust(path string, data []byte) (int64, error) {
 }
 
 func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, error) {
+	// kind cannot be empty or ontain spaces
+	if kind == "" {
+		return nil, fmt.Errorf("kind is empty")
+	}
+	if strings.Contains(kind, " ") {
+		return nil, fmt.Errorf("kind cannot contain spaces")
+	}
+	if strings.Contains(kind, "\n") {
+		return nil, fmt.Errorf("kind cannot contain newlines")
+	}
 	if strings.Contains(meta, "\n") {
-		return nil, os.ErrInvalid // Metadata cannot contain newlines
+		return nil, fmt.Errorf("metadata cannot contain newlines")
 	}
 	var rec Record
 	var err error
 	if len(data) > 0 {
-		rec.Offset, err = appendToFileRobust(path.Join(s.DataDir, s.DataFileName), data)
+		rec.Offset, err = appendToFileRobust(s.dataFilePath, data)
 		if err != nil {
 			return nil, err
 		}
@@ -81,8 +94,13 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 	// <offset> <length> <timestamp> <kind> <meta>
 	rec.Meta = meta
 	rec.Kind = kind
-	indexLine := fmt.Sprintf("%d %d %d %s %s\n", rec.Offset, rec.Length, rec.Timestamp, rec.Kind, rec.Meta)
-	_, err = appendToFileRobust(path.Join(s.DataDir, s.IndexFileName), []byte(indexLine))
+	var indexLine string
+	if rec.Meta == "" {
+		indexLine = fmt.Sprintf("%d %d %d %s\n", rec.Offset, rec.Length, rec.Timestamp, rec.Kind)
+	} else {
+		indexLine = fmt.Sprintf("%d %d %d %s %s\n", rec.Offset, rec.Length, rec.Timestamp, rec.Kind, rec.Meta)
+	}
+	_, err = appendToFileRobust(s.indexFilePath, []byte(indexLine))
 	if err != nil {
 		return nil, err
 	}
@@ -93,10 +111,14 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 
 // perf: re-using Record
 func parseIndexLine(line string, res *Record) error {
-	_, err := fmt.Sscanf(line, "%d %d %d %s %s", &res.Offset, &res.Length, &res.Timestamp, &res.Kind, &res.Meta)
+	n, err := fmt.Sscanf(line, "%d %d %d %s %s", &res.Offset, &res.Length, &res.Timestamp, &res.Kind, &res.Meta)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to parse index line: '%s', error: %v\n", line, err)
-		return err
+		if n == 4 {
+			res.Meta = ""
+		} else {
+			fmt.Fprintf(os.Stderr, "failed to parse index line: '%s', error: %v\n", line, err)
+			return err
+		}
 	}
 	if res.Offset < -1 || res.Length < 0 || res.Timestamp < 0 {
 		return fmt.Errorf("invalid index line: %s", line)
@@ -135,8 +157,7 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	if r.Offset == -1 {
 		return nil, nil
 	}
-	path := path.Join(s.DataDir, s.DataFileName)
-	return readFilePart(path, r.Offset, r.Length)
+	return readFilePart(s.dataFilePath, r.Offset, r.Length)
 }
 
 func readAllRecords(path string) ([]Record, error) {
@@ -169,7 +190,7 @@ func readAllRecords(path string) ([]Record, error) {
 
 func OpenStore(s *Store) error {
 	if s.DataDir == "" {
-		return fmt.Errorf("data directory is not set")
+		return fmt.Errorf("data directory is not set. For current directory, use '.'")
 	}
 	if s.IndexFileName == "" {
 		s.IndexFileName = "index.txt"
@@ -178,21 +199,31 @@ func OpenStore(s *Store) error {
 		s.DataFileName = "data.bin"
 	}
 
-	err := os.MkdirAll(s.DataDir, 0755)
+	var err error
+	s.indexFilePath = path.Join(s.DataDir, s.IndexFileName)
+	s.indexFilePath, err = filepath.Abs(s.indexFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for index file: %w", err)
+	}
+	s.dataFilePath = path.Join(s.DataDir, s.DataFileName)
+	s.dataFilePath, err = filepath.Abs(s.dataFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for data file: %w", err)
+	}
+
+	err = os.MkdirAll(s.DataDir, 0755)
 	if err != nil {
 		return err
 	}
-	indexPath := path.Join(s.DataDir, s.IndexFileName)
-	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
-		// Create the index file if it does not exist
-		file, err := os.Create(indexPath)
+	if _, err := os.Stat(s.indexFilePath); os.IsNotExist(err) {
+		file, err := os.Create(s.indexFilePath)
 		if err != nil {
 			return err
 		}
 		file.Close()
 	}
 
-	s.Records, err = readAllRecords(indexPath)
+	s.Records, err = readAllRecords(s.indexFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read records from index file: %w", err)
 	}

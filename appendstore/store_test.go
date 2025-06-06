@@ -37,6 +37,9 @@ func genRandomRecords(n int) []testRecord {
 			Data: genRandomText(rng.Intn(1000)),
 			Meta: "meta_" + string(rune('a'+rng.Intn(26))),
 		}
+		if i%33 == 0 {
+			records[i].Meta = ""
+		}
 	}
 	return records
 }
@@ -78,10 +81,24 @@ func TestStoreWriteAndRead(t *testing.T) {
 
 	// Test with newline in metadata
 	_, err = store.AppendRecord("test_kind", []byte("test data"), "meta\nwith\nnewlines")
-	if err != os.ErrInvalid {
+	if err == nil {
 		t.Fatalf("Expected AppendRecord to reject metadata with newlines, got error: %v", err)
 	}
-
+	// Test kind with spaces
+	_, err = store.AppendRecord("test kind", []byte("test data"), "meta")
+	if err == nil {
+		t.Fatalf("Expected AppendRecord to reject kind with spaces, got error: %v", err)
+	}
+	// Test empty kind
+	_, err = store.AppendRecord("", []byte("test data"), "meta")
+	if err == nil {
+		t.Fatalf("Expected AppendRecord to reject empty kind, got error: %v", err)
+	}
+	// Test kind with newlines
+	_, err = store.AppendRecord("test\nkind", []byte("test data"), "meta")
+	if err == nil {
+		t.Fatalf("Expected AppendRecord to reject kind with newlines, got error: %v", err)
+	}
 	// Verify no records were added
 	if len(store.Records) != 0 {
 		t.Fatalf("Expected no records to be added, got %d records", len(store.Records))
@@ -89,6 +106,15 @@ func TestStoreWriteAndRead(t *testing.T) {
 
 	currOff := int64(0)
 	for i, recTest := range testRecords {
+		if i%25 == 0 {
+			// make sure we're robust against appending non-indexed data
+			// this is useful if AppendRecord() fails with partial write, without recording that in the index
+			// we still want things to work if this happens
+			d := []byte("lalalala\n")
+			appendToFileRobust(store.dataFilePath, d)
+			currOff += int64(len(d))
+		}
+
 		rec, err := store.AppendRecord(recTest.Kind, recTest.Data, recTest.Meta)
 		if err != nil {
 			t.Fatalf("Failed to append record: %v", err)
