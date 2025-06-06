@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -200,12 +199,12 @@ func OpenStore(s *Store) error {
 	}
 
 	var err error
-	s.indexFilePath = path.Join(s.DataDir, s.IndexFileName)
+	s.indexFilePath = filepath.Join(s.DataDir, s.IndexFileName)
 	s.indexFilePath, err = filepath.Abs(s.indexFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for index file: %w", err)
 	}
-	s.dataFilePath = path.Join(s.DataDir, s.DataFileName)
+	s.dataFilePath = filepath.Join(s.DataDir, s.DataFileName)
 	s.dataFilePath, err = filepath.Abs(s.dataFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path for data file: %w", err)
