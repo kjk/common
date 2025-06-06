@@ -76,6 +76,17 @@ func TestStoreWriteAndRead(t *testing.T) {
 		t.Fatalf("Failed to open store: %v", err)
 	}
 
+	// Test with newline in metadata
+	_, err = store.AppendRecord("test_kind", []byte("test data"), "meta\nwith\nnewlines")
+	if err != os.ErrInvalid {
+		t.Fatalf("Expected AppendRecord to reject metadata with newlines, got error: %v", err)
+	}
+
+	// Verify no records were added
+	if len(store.Records) != 0 {
+		t.Fatalf("Expected no records to be added, got %d records", len(store.Records))
+	}
+
 	currOff := int64(0)
 	for i, recTest := range testRecords {
 		rec, err := store.AppendRecord(recTest.Kind, recTest.Data, recTest.Meta)
