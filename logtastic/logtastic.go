@@ -66,6 +66,8 @@ func logtasticWorker() {
 	logWorkerStopped.Add(1)
 	for op := range logWorkerCh {
 		// logfLocal("logtasticPOST %s\n", op.uri)
+		writeLog(op.d)
+
 		uri := op.uri
 		if uri == kPleaseStop {
 			break
@@ -186,7 +188,6 @@ func Log(s string) {
 		return
 	}
 	d := []byte(s)
-	writeLog(d)
 	logtasticPOST("/api/v1/log", d, mimePlainText)
 }
 
