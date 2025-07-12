@@ -26,8 +26,16 @@ type Store struct {
 
 	indexFilePath string
 	dataFilePath  string
-	Records       []Record // In-memory cache of records, can be used for quick access
+	records       []*Record // In-memory cache of records, can be used for quick access
 	mu            sync.Mutex
+}
+
+// no direct access to records to ensure thread safety
+func (s *Store) Records() []*Record {
+	s.mu.Lock()
+	res := append([]*Record{}, s.records...)
+	s.mu.Unlock()
+	return res
 }
 
 // returns offset at which the data was written
@@ -81,7 +89,7 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var rec Record
+	rec := &Record{}
 	var err error
 	if len(data) > 0 {
 		rec.Offset, err = appendToFileRobust(s.dataFilePath, data)
@@ -108,9 +116,8 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 	if err != nil {
 		return nil, err
 	}
-	s.Records = append(s.Records, rec)
-	res := &s.Records[len(s.Records)-1]
-	return res, nil
+	s.records = append(s.records, rec)
+	return rec, nil
 }
 
 // perf: re-using Record
@@ -167,7 +174,7 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	return readFilePart(s.dataFilePath, r.Offset, r.Length)
 }
 
-func readAllRecords(path string) ([]Record, error) {
+func readAllRecords(path string) ([]*Record, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -175,16 +182,16 @@ func readAllRecords(path string) ([]Record, error) {
 	defer file.Close()
 
 	var line string
-	var records []Record
+	var records []*Record
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		var record Record
+		rec := &Record{}
 		line = scanner.Text()
-		err = parseIndexLine(line, &record)
+		err = parseIndexLine(line, rec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse index line: %s, error: %w", line, err)
 		}
-		records = append(records, record)
+		records = append(records, rec)
 	}
 
 	// Check for scanning errors (e.g., corrupted file)
@@ -230,7 +237,7 @@ func OpenStore(s *Store) error {
 		file.Close()
 	}
 
-	s.Records, err = readAllRecords(s.indexFilePath)
+	s.records, err = readAllRecords(s.indexFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read records from index file: %w", err)
 	}

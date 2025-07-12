@@ -100,8 +100,8 @@ func TestStoreWriteAndRead(t *testing.T) {
 		t.Fatalf("Expected AppendRecord to reject kind with newlines, got error: %v", err)
 	}
 	// Verify no records were added
-	if len(store.Records) != 0 {
-		t.Fatalf("Expected no records to be added, got %d records", len(store.Records))
+	if len(store.Records()) != 0 {
+		t.Fatalf("Expected no records to be added, got %d records", len(store.Records()))
 	}
 
 	currOff := int64(0)
@@ -126,8 +126,8 @@ func TestStoreWriteAndRead(t *testing.T) {
 		currOff += rec.Length
 	}
 
-	if len(store.Records) != 1000 {
-		t.Fatalf("Expected 1000 records, got %d", len(store.Records))
+	if len(store.Records()) != 1000 {
+		t.Fatalf("Expected 1000 records, got %d", len(store.Records()))
 	}
 
 	// reopen the store
@@ -135,8 +135,9 @@ func TestStoreWriteAndRead(t *testing.T) {
 		t.Fatalf("Failed to open store: %v", err)
 	}
 
+	recs := store.Records()
 	for i, recTest := range testRecords {
-		rec := &store.Records[i]
+		rec := recs[i]
 		verifyRecord(t, i, rec, recTest)
 		data, err := store.ReadRecord(rec)
 		if err != nil {
