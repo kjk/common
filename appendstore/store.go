@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ type Store struct {
 	indexFilePath string
 	dataFilePath  string
 	Records       []Record // In-memory cache of records, can be used for quick access
+	mu            sync.Mutex
 }
 
 // returns offset at which the data was written
@@ -76,6 +78,9 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 	if strings.Contains(meta, "\n") {
 		return nil, fmt.Errorf("metadata cannot contain newlines")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var rec Record
 	var err error
 	if len(data) > 0 {
@@ -156,6 +161,9 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	if r.Offset == -1 {
 		return nil, nil
 	}
+	// TODO: not sure if this is needed
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return readFilePart(s.dataFilePath, r.Offset, r.Length)
 }
 
