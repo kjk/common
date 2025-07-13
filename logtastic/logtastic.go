@@ -3,6 +3,7 @@ package logtastic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -124,6 +125,15 @@ func Stop() {
 	}
 }
 
+func fullURL(uriPath string) string {
+	httpScheme := "https://"
+	if strings.Contains(Server, "localhost") || strings.Contains(Server, "127.0.0.01") {
+		httpScheme = "http://"
+	}
+
+	return httpScheme + Server + uriPath
+}
+
 func logtasticPOST(uriPath string, d []byte, mime string) {
 	if Server == "" {
 		return
@@ -132,7 +142,7 @@ func logtasticPOST(uriPath string, d []byte, mime string) {
 		go logtasticWorker()
 	})
 
-	uri := "http://" + Server + uriPath
+	uri := fullURL(uriPath)
 	// logfLocal("logtasticPOST %s\n", uri)
 	op := op{
 		uri:  uri,
@@ -299,4 +309,16 @@ func limitString(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+func CheckServerAlive(server string) error {
+	if isShuttingDown.Load() {
+		return errors.New("server shutting down")
+	}
+	if server == "" {
+		return errors.New("server is empty string")
+	}
+	uri := fullURL("/ping")
+	_, err := http.Get(uri)
+	return err
 }
