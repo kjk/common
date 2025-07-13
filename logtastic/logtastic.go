@@ -125,13 +125,13 @@ func Stop() {
 	}
 }
 
-func fullURL(uriPath string) string {
+func fullURL(server string, uriPath string) string {
 	httpScheme := "https://"
-	if strings.Contains(Server, "localhost") || strings.Contains(Server, "127.0.0.01") {
+	if strings.Contains(server, "localhost") || strings.Contains(server, "127.0.0.01") {
 		httpScheme = "http://"
 	}
 
-	return httpScheme + Server + uriPath
+	return httpScheme + server + uriPath
 }
 
 func logtasticPOST(uriPath string, d []byte, mime string) {
@@ -142,7 +142,7 @@ func logtasticPOST(uriPath string, d []byte, mime string) {
 		go logtasticWorker()
 	})
 
-	uri := fullURL(uriPath)
+	uri := fullURL(Server, uriPath)
 	// logfLocal("logtasticPOST %s\n", uri)
 	op := op{
 		uri:  uri,
@@ -318,7 +318,7 @@ func CheckServerAlive(server string) error {
 	if server == "" {
 		return errors.New("server is empty string")
 	}
-	uri := fullURL("/ping")
+	uri := fullURL(server, "/ping")
 	_, err := http.Get(uri)
 	return err
 }
