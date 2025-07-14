@@ -54,8 +54,8 @@ func verifyRecord(t *testing.T, i int, rec *Record, record testRecord) {
 	if rec.Length != int64(len(record.Data)) {
 		t.Errorf("Record %d: Length mismatch, expected %d, got %d", i, len(record.Data), rec.Length)
 	}
-	if rec.Timestamp > time.Now().UTC().Unix() {
-		t.Errorf("Record %d: Timestamp is in the future, got %d", i, rec.Timestamp)
+	if rec.TimestampMs > time.Now().UTC().UnixMilli() {
+		t.Errorf("Record %d: Timestamp is in the future, got %d", i, rec.TimestampMs)
 	}
 }
 
