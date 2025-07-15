@@ -214,7 +214,7 @@ func readFilePart(path string, offset int64, len int64) ([]byte, error) {
 }
 
 func (s *Store) ReadRecord(r *Record) ([]byte, error) {
-	if r.Offset == 0 || r.Size == 0 {
+	if r.Offset < 0 || r.Size == 0 {
 		return nil, nil
 	}
 	// TODO: not sure if this is needed
