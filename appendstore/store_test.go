@@ -35,7 +35,7 @@ func genRandomRecords(n int) []testRecord {
 		records[i] = testRecord{
 			Kind: "test_kind_" + string(rune('a'+rng.Intn(26))),
 			Data: genRandomText(rng.Intn(1000)),
-			Meta: "meta_" + string(rune('a'+rng.Intn(26))),
+			Meta: "meta " + string(rune('a'+rng.Intn(26))),
 		}
 		if i%33 == 0 {
 			records[i].Meta = ""
@@ -46,16 +46,35 @@ func genRandomRecords(n int) []testRecord {
 
 func verifyRecord(t *testing.T, i int, rec *Record, record testRecord) {
 	if rec.Kind != record.Kind {
-		t.Errorf("Record %d: Kind mismatch, expected %s, got %s", i, record.Kind, rec.Kind)
+		t.Fatalf("Record %d: Kind mismatch, expected %s, got %s", i, record.Kind, rec.Kind)
 	}
 	if rec.Meta != record.Meta {
-		t.Errorf("Record %d: Meta mismatch, expected %s, got %s", i, record.Meta, rec.Meta)
+		t.Fatalf("Record %d: Meta mismatch, expected %s, got %s", i, record.Meta, rec.Meta)
 	}
-	if rec.Length != int64(len(record.Data)) {
-		t.Errorf("Record %d: Length mismatch, expected %d, got %d", i, len(record.Data), rec.Length)
+	if rec.Size != int64(len(record.Data)) {
+		t.Fatalf("Record %d: Length mismatch, expected %d, got %d", i, len(record.Data), rec.Size)
 	}
 	if rec.TimestampMs > time.Now().UTC().UnixMilli() {
-		t.Errorf("Record %d: Timestamp is in the future, got %d", i, rec.TimestampMs)
+		t.Fatalf("Record %d: Timestamp is in the future, got %d", i, rec.TimestampMs)
+	}
+}
+
+func TestParseIndexLine(t *testing.T) {
+	line := "123 456 789 test_kind meta data"
+	var rec Record
+	err := ParseIndexLine(line, &rec)
+	if err != nil {
+		t.Fatalf("ParseIndexLine failed: %v", err)
+	}
+
+	if rec.Offset != 123 || rec.Size != 456 || rec.TimestampMs != 789 || rec.Kind != "test_kind" || rec.Meta != "meta data" {
+		t.Fatalf("Parsed record does not match expected values: %+v", rec)
+	}
+
+	// Test with invalid line
+	err = ParseIndexLine("invalid line", &rec)
+	if err == nil {
+		t.Fatal("Expected error for invalid index line, got nil")
 	}
 }
 
@@ -120,10 +139,10 @@ func TestStoreWriteAndRead(t *testing.T) {
 			t.Fatalf("Failed to append record: %v", err)
 		}
 		verifyRecord(t, i, rec, recTest)
-		if rec.Length > 0 && rec.Offset != currOff {
+		if rec.Size > 0 && rec.Offset != currOff {
 			t.Fatalf("Record %d: Offset mismatch, expected %d, got %d", i, currOff, rec.Offset)
 		}
-		currOff += rec.Length
+		currOff += rec.Size
 	}
 
 	if len(store.Records()) != 1000 {

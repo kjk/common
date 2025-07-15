@@ -6,17 +6,23 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Record struct {
-	Offset      int64  // Offset in the data file where the record starts, -1 means no data for this record, just Kind / Meta
-	Length      int64  // Length of the record in bytes
-	TimestampMs int64  // in utc unix time format, milliseconds since January 1, 1970, 00:00:00 UTC)
-	Kind        string // Kind of the record (e.g., "data", "metadata"). Can use to identify the type of data stored.
-	Meta        string // Optional metadata associated with the record, cannot contain newlines
+	// offset in data file, 0 means no data
+	Offset int64
+	Size   int64
+	// time in utc unix milliseconds (milliseconds since January 1, 1970, 00:00:00 UTC)
+	TimestampMs int64
+	// kind of the record, e.g., "data", "metadata"
+	// can't contain spaces or newlines
+	Kind string
+	// optional metadata, can't contain newlines
+	Meta string
 }
 
 type Store struct {
@@ -97,9 +103,9 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 			return nil, err
 		}
 	} else {
-		rec.Offset = -1 // No data for this record
+		rec.Offset = 0 // No data for this record
 	}
-	rec.Length = int64(len(data))
+	rec.Size = int64(len(data))
 	rec.TimestampMs = time.Now().UTC().UnixMilli()
 
 	// format of the index line:
@@ -108,9 +114,9 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 	rec.Kind = kind
 	var indexLine string
 	if rec.Meta == "" {
-		indexLine = fmt.Sprintf("%d %d %d %s\n", rec.Offset, rec.Length, rec.TimestampMs, rec.Kind)
+		indexLine = fmt.Sprintf("%d %d %d %s\n", rec.Offset, rec.Size, rec.TimestampMs, rec.Kind)
 	} else {
-		indexLine = fmt.Sprintf("%d %d %d %s %s\n", rec.Offset, rec.Length, rec.TimestampMs, rec.Kind, rec.Meta)
+		indexLine = fmt.Sprintf("%d %d %d %s %s\n", rec.Offset, rec.Size, rec.TimestampMs, rec.Kind, rec.Meta)
 	}
 	_, err = appendToFileRobust(s.indexFilePath, []byte(indexLine))
 	if err != nil {
@@ -120,21 +126,64 @@ func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, er
 	return rec, nil
 }
 
-// perf: re-using Record
-func parseIndexLine(line string, res *Record) error {
-	n, err := fmt.Sscanf(line, "%d %d %d %s %s", &res.Offset, &res.Length, &res.TimestampMs, &res.Kind, &res.Meta)
-	if err != nil {
-		if n == 4 {
-			res.Meta = ""
-		} else {
-			fmt.Fprintf(os.Stderr, "failed to parse index line: '%s', error: %v\n", line, err)
-			return err
-		}
+// perf: allow re-using Record
+func ParseIndexLine(line string, res *Record) error {
+	parts := strings.SplitN(line, " ", 5)
+	if len(parts) < 4 {
+		return fmt.Errorf("invalid index line: %s", line)
 	}
-	if res.Offset < -1 || res.Length < 0 || res.TimestampMs < 0 {
+
+	var err error
+	res.Offset, err = strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid offset in index line: %s", line)
+	}
+
+	res.Size, err = strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid size in index line: %s", line)
+	}
+
+	res.TimestampMs, err = strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid time in index line: %s", line)
+	}
+
+	res.Kind = parts[3]
+	res.Meta = ""
+	if len(parts) > 4 {
+		res.Meta = parts[4]
+	}
+
+	if res.Offset < 0 || res.Size < 0 || res.TimestampMs < 0 {
 		return fmt.Errorf("invalid index line: %s", line)
 	}
 	return nil
+}
+
+func ParseIndexFromScanner(scanner *bufio.Scanner) ([]*Record, error) {
+	var records []*Record
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue // skip empty lines
+		}
+		rec := &Record{}
+		err := ParseIndexLine(line, rec)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading from scanner: %w", err)
+	}
+	return records, nil
+}
+
+func ParseIndexFromData(d []byte) ([]*Record, error) {
+	scanner := bufio.NewScanner(strings.NewReader(string(d)))
+	return ParseIndexFromScanner(scanner)
 }
 
 // readFilePart efficiently reads a specific portion of a file
@@ -165,13 +214,13 @@ func readFilePart(path string, offset int64, len int64) ([]byte, error) {
 }
 
 func (s *Store) ReadRecord(r *Record) ([]byte, error) {
-	if r.Offset == -1 {
+	if r.Offset == 0 || r.Size == 0 {
 		return nil, nil
 	}
 	// TODO: not sure if this is needed
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return readFilePart(s.dataFilePath, r.Offset, r.Length)
+	return readFilePart(s.dataFilePath, r.Offset, r.Size)
 }
 
 func readAllRecords(path string) ([]*Record, error) {
@@ -180,26 +229,8 @@ func readAllRecords(path string) ([]*Record, error) {
 		return nil, err
 	}
 	defer file.Close()
-
-	var line string
-	var records []*Record
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		rec := &Record{}
-		line = scanner.Text()
-		err = parseIndexLine(line, rec)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse index line: %s, error: %w", line, err)
-		}
-		records = append(records, rec)
-	}
-
-	// Check for scanning errors (e.g., corrupted file)
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file: %w", err)
-	}
-
-	return records, nil
+	return ParseIndexFromScanner(scanner)
 }
 
 func OpenStore(s *Store) error {
