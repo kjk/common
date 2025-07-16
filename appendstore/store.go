@@ -15,7 +15,11 @@ import (
 type Record struct {
 	// offset in data file, 0 means no data
 	Offset int64
-	Size   int64
+	// size of the data in bytes, 0 means no data
+	Size int64
+	// for over-written records we record the size taken in the file
+	// which is larger than Size
+	SizeInFile int64
 	// time in utc unix milliseconds (milliseconds since January 1, 1970, 00:00:00 UTC)
 	TimestampMs int64
 	// kind of the record, e.g., "data", "metadata"
@@ -23,6 +27,9 @@ type Record struct {
 	Kind string
 	// optional metadata, can't contain newlines
 	Meta string
+	// true if this record was over-written which means there's a newer version
+	// with the same kind and meta after it
+	Overwritten bool
 }
 
 type Store struct {
@@ -32,8 +39,15 @@ type Store struct {
 
 	indexFilePath string
 	dataFilePath  string
-	records       []*Record // In-memory cache of records, can be used for quick access
-	mu            sync.Mutex
+	records       []*Record
+
+	// when over-writing a record, we expand the data by this much to minimize
+	// the amount written to file.
+	// 0 means no expansion.
+	// 40 means we expand the data by 40%
+	// 100 means we expand the data by 100%
+	OverWriteDataExpandPercent int
+	mu                         sync.Mutex
 }
 
 // no direct access to records to ensure thread safety
@@ -46,7 +60,7 @@ func (s *Store) Records() []*Record {
 
 // returns offset at which the data was written
 // we write len(data) bytes
-func appendToFileRobust(path string, data []byte) (int64, error) {
+func appendToFileRobust(path string, data []byte, additinalBytes int) (int64, error) {
 	// get file size
 	info, err := os.Stat(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -66,6 +80,17 @@ func appendToFileRobust(path string, data []byte) (int64, error) {
 		file.Close()
 		return 0, err
 	}
+	if additinalBytes > 0 {
+		d := make([]byte, additinalBytes)
+		for i := 0; i < additinalBytes; i++ {
+			d[i] = 32 // fill with spaces
+		}
+		_, err = file.Write(d)
+		if err != nil {
+			file.Close()
+			return 0, err
+		}
+	}
 	err = file.Sync()
 	if err != nil {
 		file.Close()
@@ -78,85 +103,180 @@ func appendToFileRobust(path string, data []byte) (int64, error) {
 	return offset, nil
 }
 
-func (s *Store) AppendRecord(kind string, data []byte, meta string) (*Record, error) {
-	// kind cannot be empty or ontain spaces
+func writeToFilAtOffset(path string, offset int64, data []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Seek(offset, io.SeekStart)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(data)
+	return err
+}
+
+func validateKindAndMeta(kind, meta string) error {
+	// kind cannot be empty or contain spaces or newlines
 	if kind == "" {
-		return nil, fmt.Errorf("kind is empty")
+		return fmt.Errorf("kind is empty")
 	}
 	if strings.Contains(kind, " ") {
-		return nil, fmt.Errorf("kind cannot contain spaces")
+		return fmt.Errorf("kind cannot contain spaces")
 	}
 	if strings.Contains(kind, "\n") {
-		return nil, fmt.Errorf("kind cannot contain newlines")
+		return fmt.Errorf("kind cannot contain newlines")
 	}
 	if strings.Contains(meta, "\n") {
-		return nil, fmt.Errorf("metadata cannot contain newlines")
+		return fmt.Errorf("metadata cannot contain newlines")
+	}
+	return nil
+}
+
+func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
+	if err := validateKindAndMeta(kind, meta); err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return s.AppendRecord(kind, nil, meta)
+	}
+
+	// find a record that we can overwrite
+	recToOverwrite := -1
+	neededSize := int64(len(data))
+	for i, rec := range s.records {
+		if rec.Kind == kind && rec.Meta == meta && rec.SizeInFile >= neededSize {
+			recToOverwrite = i
+			break
+		}
+	}
+	if recToOverwrite == -1 {
+		// no record to overwrite, append a new one with potentially padding
+		// for future overwrites
+		additionalBytes := (neededSize * int64(s.OverWriteDataExpandPercent)) / 100
+		return s.appendRecord(kind, data, meta, int(additionalBytes))
+	}
+
+	offset := s.records[recToOverwrite].Offset
+	writeToFilAtOffset(s.dataFilePath, offset, data)
+
+	rec := &Record{
+		Offset:     offset,
+		Size:       int64(len(data)),
+		SizeInFile: 0,
+		Kind:       kind,
+		Meta:       meta,
+	}
+	indexLine := serializeRecord(rec)
+	_, err := appendToFileRobust(s.indexFilePath, []byte(indexLine), 0)
+	if err != nil {
+		return err
+	}
+	s.records = append(s.records, rec)
+	return nil
+}
+
+// format of the index line:
+// <offset> <length>:[<length in file>] <timestamp> <kind> [<meta>]
+func serializeRecord(rec *Record) string {
+	sz := ""
+	if rec.SizeInFile > 0 {
+		sz = fmt.Sprintf("%d:%d", rec.Size, rec.SizeInFile)
+	} else {
+		sz = fmt.Sprintf("%d", rec.Size)
+	}
+	rec.TimestampMs = time.Now().UTC().UnixMilli()
+	t := rec.TimestampMs
+	if rec.Meta == "" {
+		return fmt.Sprintf("%d %s %d %s\n", rec.Offset, sz, t, rec.Kind)
+	}
+	return fmt.Sprintf("%d %s %d %s %s\n", rec.Offset, sz, t, rec.Kind, rec.Meta)
+}
+
+func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBytes int) error {
+	if err := validateKindAndMeta(kind, meta); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rec := &Record{}
+	size := int64(len(data))
+	rec := &Record{
+		Size: size,
+		Kind: kind,
+		Meta: meta,
+	}
 	var err error
-	if len(data) > 0 {
-		rec.Offset, err = appendToFileRobust(s.dataFilePath, data)
+	if size > 0 {
+		rec.Offset, err = appendToFileRobust(s.dataFilePath, data, additionalBytes)
 		if err != nil {
-			return nil, err
+			return err
 		}
-	} else {
-		rec.Offset = 0 // No data for this record
 	}
-	rec.Size = int64(len(data))
-	rec.TimestampMs = time.Now().UTC().UnixMilli()
+	if additionalBytes > 0 {
+		rec.SizeInFile = rec.Size + int64(additionalBytes)
+	}
 
-	// format of the index line:
-	// <offset> <length> <timestamp> <kind> <meta>
-	rec.Meta = meta
-	rec.Kind = kind
-	var indexLine string
-	if rec.Meta == "" {
-		indexLine = fmt.Sprintf("%d %d %d %s\n", rec.Offset, rec.Size, rec.TimestampMs, rec.Kind)
-	} else {
-		indexLine = fmt.Sprintf("%d %d %d %s %s\n", rec.Offset, rec.Size, rec.TimestampMs, rec.Kind, rec.Meta)
-	}
-	_, err = appendToFileRobust(s.indexFilePath, []byte(indexLine))
+	indexLine := serializeRecord(rec)
+	_, err = appendToFileRobust(s.indexFilePath, []byte(indexLine), 0)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	s.records = append(s.records, rec)
-	return rec, nil
+	return nil
+}
+
+func (s *Store) AppendRecord(kind string, data []byte, meta string) error {
+	return s.appendRecord(kind, data, meta, 0)
 }
 
 // perf: allow re-using Record
-func ParseIndexLine(line string, res *Record) error {
+func ParseIndexLine(line string, rec *Record) error {
 	parts := strings.SplitN(line, " ", 5)
 	if len(parts) < 4 {
 		return fmt.Errorf("invalid index line: %s", line)
 	}
 
 	var err error
-	res.Offset, err = strconv.ParseInt(parts[0], 10, 64)
+	rec.Offset, err = strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid offset in index line: %s", line)
+		return fmt.Errorf("invalid offset '%s' in index line: %s", parts[0], line)
+	}
+	if rec.Offset < 0 {
+		return fmt.Errorf("invalid offset '%s' in index line: %s", parts[0], line)
 	}
 
-	res.Size, err = strconv.ParseInt(parts[1], 10, 64)
+	rec.SizeInFile = 0 // possibly reusing rec so needs to reset
+	sizeParts := strings.SplitN(parts[1], ":", 2)
+	rec.Size, err = strconv.ParseInt(sizeParts[0], 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid size in index line: %s", line)
+		return fmt.Errorf("invalid size '%s' in index line: %s", parts[1], line)
+	}
+	if rec.Size < 0 {
+		return fmt.Errorf("invalid size '%s' in index line: %s", parts[1], line)
 	}
 
-	res.TimestampMs, err = strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid time in index line: %s", line)
+	if len(sizeParts) > 1 {
+		rec.SizeInFile, err = strconv.ParseInt(sizeParts[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid size '%s' in index line: %s", parts[1], line)
+		}
 	}
 
-	res.Kind = parts[3]
-	res.Meta = ""
+	rec.TimestampMs, err = strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid timestamp '%s' in index line: %s", parts[2], line)
+	}
+	if rec.TimestampMs < 0 {
+		return fmt.Errorf("invalid timestamp '%s' in index line: %s", parts[2], line)
+	}
+
+	rec.Kind = parts[3]
+	rec.Meta = "" // possibly reusing rec so needs to reset
 	if len(parts) > 4 {
-		res.Meta = parts[4]
-	}
-
-	if res.Offset < 0 || res.Size < 0 || res.TimestampMs < 0 {
-		return fmt.Errorf("invalid index line: %s", line)
+		rec.Meta = parts[4]
 	}
 	return nil
 }
@@ -166,7 +286,7 @@ func ParseIndexFromScanner(scanner *bufio.Scanner) ([]*Record, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
-			continue // skip empty lines
+			continue
 		}
 		rec := &Record{}
 		err := ParseIndexLine(line, rec)
