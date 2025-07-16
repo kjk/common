@@ -145,7 +145,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 }
 
 func createStore(t *testing.T, prefix string) *Store {
-	tempDir := "store_test_data"
+	tempDir := "test_data"
 	err := os.MkdirAll(tempDir, 0755)
 	assert(t, err == nil, fmt.Sprintf("Failed to create temp dir: %v", err))
 
