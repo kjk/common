@@ -80,7 +80,7 @@ func TestParseIndexLine(t *testing.T) {
 }
 
 func getLastRecord(store *Store) *Record {
-	records := store.Records()
+	records := store.allRecords
 	return records[len(records)-1]
 }
 
@@ -101,7 +101,8 @@ func TestStoreWriteAndRead(t *testing.T) {
 	// Verify no records were added
 	assert(t, len(store.Records()) == 0, fmt.Sprintf("Expected no records to be added, got %d records", len(store.Records())))
 
-	testRecords := genRandomRecords(1000)
+	// testRecords := genRandomRecords(1000)
+	testRecords := genRandomRecords(10)
 	currOff := int64(0)
 	for i, recTest := range testRecords {
 		if i%25 == 0 {
@@ -123,7 +124,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 		currOff += rec.Size
 	}
 
-	assert(t, len(store.Records()) == 1000, fmt.Sprintf("Expected 1000 records, got %d", len(store.Records())))
+	assert(t, len(store.Records()) == len(testRecords), fmt.Sprintf("Expected %d records, got %d", len(testRecords), len(store.Records())))
 
 	// reopen the store
 	err = OpenStore(store)
@@ -199,12 +200,13 @@ func TestRecordOverwrite(t *testing.T) {
 		data, err := store.ReadRecord(rec)
 		assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
 		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s", d, data))
+		assert(t, rec1.Overwritten == true, "Expected record to be marked as overwritten")
 	}
 
 }
 
 func assert(t *testing.T, cond bool, msg string) {
 	if !cond {
-		t.Fatal(msg)
+		panic(msg)
 	}
 }

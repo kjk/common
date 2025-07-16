@@ -37,9 +37,10 @@ type Store struct {
 	IndexFileName string
 	DataFileName  string
 
-	indexFilePath string
-	dataFilePath  string
-	records       []*Record
+	indexFilePath  string
+	dataFilePath   string
+	allRecords     []*Record
+	nonOverwritten []*Record
 
 	// when over-writing a record, we expand the data by this much to minimize
 	// the amount written to file.
@@ -50,10 +51,19 @@ type Store struct {
 	mu                         sync.Mutex
 }
 
+func (s *Store) calcNonOverwritten() {
+	s.nonOverwritten = make([]*Record, 0, len(s.allRecords))
+	for _, rec := range s.allRecords {
+		if !rec.Overwritten {
+			s.nonOverwritten = append(s.nonOverwritten, rec)
+		}
+	}
+}
+
 // no direct access to records to ensure thread safety
 func (s *Store) Records() []*Record {
 	s.mu.Lock()
-	res := append([]*Record{}, s.records...)
+	res := append([]*Record{}, s.nonOverwritten...)
 	s.mu.Unlock()
 	return res
 }
@@ -146,7 +156,7 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 	// find a record that we can overwrite
 	recToOverwrite := -1
 	neededSize := int64(len(data))
-	for i, rec := range s.records {
+	for i, rec := range s.allRecords {
 		if rec.Kind == kind && rec.Meta == meta && rec.SizeInFile >= neededSize {
 			recToOverwrite = i
 			break
@@ -159,7 +169,9 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 		return s.appendRecord(kind, data, meta, int(additionalBytes))
 	}
 
-	offset := s.records[recToOverwrite].Offset
+	recO := s.allRecords[recToOverwrite]
+	offset := recO.Offset
+	recO.Overwritten = true
 	writeToFilAtOffset(s.dataFilePath, offset, data)
 
 	rec := &Record{
@@ -174,7 +186,8 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 	if err != nil {
 		return err
 	}
-	s.records = append(s.records, rec)
+	s.allRecords = append(s.allRecords, rec)
+	s.calcNonOverwritten()
 	return nil
 }
 
@@ -224,7 +237,8 @@ func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBy
 	if err != nil {
 		return err
 	}
-	s.records = append(s.records, rec)
+	s.allRecords = append(s.allRecords, rec)
+	s.nonOverwritten = append(s.nonOverwritten, rec)
 	return nil
 }
 
@@ -388,9 +402,25 @@ func OpenStore(s *Store) error {
 		file.Close()
 	}
 
-	s.records, err = readAllRecords(s.indexFilePath)
+	s.allRecords, err = readAllRecords(s.indexFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read records from index file: %w", err)
 	}
+
+	// mark overwritten records
+	m := make(map[int64]*Record)
+	for _, rec := range s.allRecords {
+		if rec.Size == 0 {
+			continue
+		}
+		// this record has the same offset as previous one which means
+		// previous one was overwritten by this one
+		if rec := m[rec.Offset]; rec != nil {
+			rec.Overwritten = true
+			continue
+		}
+		m[rec.Offset] = rec
+	}
+	s.calcNonOverwritten()
 	return nil
 }
