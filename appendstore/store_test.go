@@ -101,10 +101,13 @@ func TestStoreWriteAndRead(t *testing.T) {
 	// Verify no records were added
 	assert(t, len(store.Records()) == 0, fmt.Sprintf("Expected no records to be added, got %d records", len(store.Records())))
 
-	// testRecords := genRandomRecords(1000)
-	testRecords := genRandomRecords(10)
+	testRecords := genRandomRecords(1000)
 	currOff := int64(0)
 	for i, recTest := range testRecords {
+		if i%13 == 0 {
+			err = store.CloseFiles()
+			assert(t, err == nil, fmt.Sprintf("Failed to close store files: %v", err))
+		}
 		if i%25 == 0 {
 			// make sure we're robust against appending non-indexed data
 			// this is useful if AppendRecord() fails with partial write, without recording that in the index
@@ -115,7 +118,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 			currOff += int64(len(d))
 		}
 
-		err := store.AppendRecord(recTest.Kind, recTest.Data, recTest.Meta)
+		err = store.AppendRecord(recTest.Kind, recTest.Data, recTest.Meta)
 		assert(t, err == nil, fmt.Sprintf("Failed to append record: %v", err))
 		rec := getLastRecord(store)
 		verifyRecord(t, i, rec, recTest)

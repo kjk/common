@@ -37,6 +37,17 @@ type Store struct {
 	IndexFileName string
 	DataFileName  string
 
+	// when over-writing a record, we expand the data by this much to minimize
+	// the amount written to file.
+	// 0 means no expansion.
+	// 40 means we expand the data by 40%
+	// 100 means we expand the data by 100%
+	OverWriteDataExpandPercent int
+
+	// if true, will call file.Sync() after every write
+	// this makes things super slow (5 secs vs 0.03 secs for 1000 records)
+	SyncWrite bool
+
 	indexFile *os.File
 	dataFile  *os.File
 
@@ -45,14 +56,8 @@ type Store struct {
 	allRecords     []*Record
 	nonOverwritten []*Record
 
-	// when over-writing a record, we expand the data by this much to minimize
-	// the amount written to file.
-	// 0 means no expansion.
-	// 40 means we expand the data by 40%
-	// 100 means we expand the data by 100%
-	OverWriteDataExpandPercent int
-	mu                         sync.Mutex
-	currDataOffset             int64
+	mu             sync.Mutex
+	currDataOffset int64
 }
 
 func (s *Store) calcNonOverwritten() {
@@ -120,7 +125,7 @@ func (s *Store) CloseFiles() error {
 	return err2
 }
 
-func appendToFile(file *os.File, data []byte, additionalBytes int) (int64, error) {
+func appendToFile(file *os.File, data []byte, additionalBytes int, sync bool) (int64, error) {
 	_, err := file.Write(data)
 	if err != nil {
 		return 0, err
@@ -135,14 +140,16 @@ func appendToFile(file *os.File, data []byte, additionalBytes int) (int64, error
 			return 0, err
 		}
 	}
-	err = file.Sync()
-	if err != nil {
-		return 0, err
+	if sync {
+		err = file.Sync()
+		if err != nil {
+			return 0, err
+		}
 	}
 	return int64(len(data) + additionalBytes), nil
 }
 
-func writeToFilAtOffset(file *os.File, offset int64, data []byte) error {
+func writeToFileAtOffset(file *os.File, offset int64, data []byte, sync bool) error {
 	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
@@ -151,7 +158,10 @@ func writeToFilAtOffset(file *os.File, offset int64, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return file.Sync()
+	if sync {
+		err = file.Sync()
+	}
+	return err
 }
 
 func validateKindAndMeta(kind, meta string) error {
@@ -205,7 +215,7 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 	recOverwritten := s.allRecords[recToOverwriteIdx]
 	offset := recOverwritten.Offset
 	recOverwritten.Overwritten = true
-	writeToFilAtOffset(s.dataFile, offset, data)
+	writeToFileAtOffset(s.dataFile, offset, data, s.SyncWrite)
 
 	rec := &Record{
 		Offset:     offset,
@@ -215,7 +225,7 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 		Meta:       meta,
 	}
 	indexLine := serializeRecord(rec)
-	_, err = appendToFile(s.indexFile, []byte(indexLine), 0)
+	_, err = appendToFile(s.indexFile, []byte(indexLine), 0, s.SyncWrite)
 	if err != nil {
 		return err
 	}
@@ -261,7 +271,7 @@ func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBy
 	}
 	if size > 0 {
 		rec.Offset = s.currDataOffset
-		nWritten, err := appendToFile(s.dataFile, data, additionalBytes)
+		nWritten, err := appendToFile(s.dataFile, data, additionalBytes, s.SyncWrite)
 		if err != nil {
 			return err
 		}
@@ -272,7 +282,7 @@ func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBy
 	}
 
 	indexLine := serializeRecord(rec)
-	_, err = appendToFile(s.indexFile, []byte(indexLine), 0)
+	_, err = appendToFile(s.indexFile, []byte(indexLine), 0, s.SyncWrite)
 	if err != nil {
 		return err
 	}
@@ -289,7 +299,7 @@ func (s *Store) appendToDataFile(data []byte) error {
 		return err
 	}
 
-	if nWritten, err := appendToFile(s.dataFile, data, 0); err != nil {
+	if nWritten, err := appendToFile(s.dataFile, data, 0, s.SyncWrite); err != nil {
 		return err
 	} else {
 		s.currDataOffset += nWritten
