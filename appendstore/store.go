@@ -37,6 +37,9 @@ type Store struct {
 	IndexFileName string
 	DataFileName  string
 
+	indexFile *os.File
+	dataFile  *os.File
+
 	indexFilePath  string
 	dataFilePath   string
 	allRecords     []*Record
@@ -49,6 +52,7 @@ type Store struct {
 	// 100 means we expand the data by 100%
 	OverWriteDataExpandPercent int
 	mu                         sync.Mutex
+	currDataOffset             int64
 }
 
 func (s *Store) calcNonOverwritten() {
@@ -68,64 +72,86 @@ func (s *Store) Records() []*Record {
 	return res
 }
 
-// returns offset at which the data was written
-// we write len(data) bytes
-func appendToFileRobust(path string, data []byte, additinalBytes int) (int64, error) {
-	// get file size
-	info, err := os.Stat(path)
-	if err != nil && !os.IsNotExist(err) {
-		return 0, err
-	}
-	var offset int64 = 0 // if file does not exist, offset is 0
-	if info != nil {
-		offset = info.Size()
-	}
-
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+func openFileForAppend(path string, fp **os.File) (int64, error) {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return 0, err
 	}
-	_, err = file.Write(data)
+	off, err := file.Seek(0, io.SeekEnd) // move to the end of the file
 	if err != nil {
 		file.Close()
 		return 0, err
 	}
-	if additinalBytes > 0 {
-		d := make([]byte, additinalBytes)
-		for i := 0; i < additinalBytes; i++ {
+	*fp = file
+	return off, nil
+}
+
+func (s *Store) reopenFiles() error {
+	if s.indexFile == nil {
+		_, err := openFileForAppend(s.indexFilePath, &s.indexFile)
+		if err != nil {
+			return fmt.Errorf("failed to open index file for appending: %w", err)
+		}
+	}
+	if s.dataFile == nil {
+		off, err := openFileForAppend(s.dataFilePath, &s.dataFile)
+		if err != nil {
+			s.CloseFiles()
+			return err
+		}
+		s.currDataOffset = off
+	}
+	return nil
+}
+
+func (s *Store) CloseFiles() error {
+	var err1, err2 error
+	if s.indexFile != nil {
+		err1 = s.indexFile.Close()
+		s.indexFile = nil
+	}
+	if s.dataFile != nil {
+		err2 = s.dataFile.Close()
+		s.dataFile = nil
+	}
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+
+func appendToFile(file *os.File, data []byte, additionalBytes int) (int64, error) {
+	_, err := file.Write(data)
+	if err != nil {
+		return 0, err
+	}
+	if additionalBytes > 0 {
+		d := make([]byte, additionalBytes)
+		for i := 0; i < additionalBytes; i++ {
 			d[i] = 32 // fill with spaces
 		}
 		_, err = file.Write(d)
 		if err != nil {
-			file.Close()
 			return 0, err
 		}
 	}
 	err = file.Sync()
 	if err != nil {
-		file.Close()
 		return 0, err
 	}
-	err = file.Close()
-	if err != nil {
-		return 0, err
-	}
-	return offset, nil
+	return int64(len(data) + additionalBytes), nil
 }
 
-func writeToFilAtOffset(path string, offset int64, data []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.Seek(offset, io.SeekStart)
+func writeToFilAtOffset(file *os.File, offset int64, data []byte) error {
+	_, err := file.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
 	_, err = file.Write(data)
-	return err
+	if err != nil {
+		return err
+	}
+	return file.Sync()
 }
 
 func validateKindAndMeta(kind, meta string) error {
@@ -153,26 +179,33 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 		return s.AppendRecord(kind, nil, meta)
 	}
 
+	s.mu.Lock()
 	// find a record that we can overwrite
-	recToOverwrite := -1
+	recToOverwriteIdx := -1
 	neededSize := int64(len(data))
 	for i, rec := range s.allRecords {
 		if rec.Kind == kind && rec.Meta == meta && rec.SizeInFile >= neededSize {
-			recToOverwrite = i
+			recToOverwriteIdx = i
 			break
 		}
 	}
-	if recToOverwrite == -1 {
+	if recToOverwriteIdx == -1 {
 		// no record to overwrite, append a new one with potentially padding
 		// for future overwrites
 		additionalBytes := (neededSize * int64(s.OverWriteDataExpandPercent)) / 100
+		s.mu.Unlock()
 		return s.appendRecord(kind, data, meta, int(additionalBytes))
 	}
+	defer s.mu.Unlock()
 
-	recO := s.allRecords[recToOverwrite]
-	offset := recO.Offset
-	recO.Overwritten = true
-	writeToFilAtOffset(s.dataFilePath, offset, data)
+	err := s.reopenFiles()
+	if err != nil {
+		return err
+	}
+	recOverwritten := s.allRecords[recToOverwriteIdx]
+	offset := recOverwritten.Offset
+	recOverwritten.Overwritten = true
+	writeToFilAtOffset(s.dataFile, offset, data)
 
 	rec := &Record{
 		Offset:     offset,
@@ -182,7 +215,7 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 		Meta:       meta,
 	}
 	indexLine := serializeRecord(rec)
-	_, err := appendToFileRobust(s.indexFilePath, []byte(indexLine), 0)
+	_, err = appendToFile(s.indexFile, []byte(indexLine), 0)
 	if err != nil {
 		return err
 	}
@@ -215,30 +248,52 @@ func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBy
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	err := s.reopenFiles()
+	if err != nil {
+		return err
+	}
+
 	size := int64(len(data))
 	rec := &Record{
 		Size: size,
 		Kind: kind,
 		Meta: meta,
 	}
-	var err error
 	if size > 0 {
-		rec.Offset, err = appendToFileRobust(s.dataFilePath, data, additionalBytes)
+		rec.Offset = s.currDataOffset
+		nWritten, err := appendToFile(s.dataFile, data, additionalBytes)
 		if err != nil {
 			return err
 		}
+		s.currDataOffset += nWritten
 	}
 	if additionalBytes > 0 {
 		rec.SizeInFile = rec.Size + int64(additionalBytes)
 	}
 
 	indexLine := serializeRecord(rec)
-	_, err = appendToFileRobust(s.indexFilePath, []byte(indexLine), 0)
+	_, err = appendToFile(s.indexFile, []byte(indexLine), 0)
 	if err != nil {
 		return err
 	}
 	s.allRecords = append(s.allRecords, rec)
 	s.nonOverwritten = append(s.nonOverwritten, rec)
+	return nil
+}
+
+func (s *Store) appendToDataFile(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.reopenFiles(); err != nil {
+		return err
+	}
+
+	if nWritten, err := appendToFile(s.dataFile, data, 0); err != nil {
+		return err
+	} else {
+		s.currDataOffset += nWritten
+	}
 	return nil
 }
 
