@@ -144,24 +144,27 @@ func TestStoreWriteAndRead(t *testing.T) {
 	}
 }
 
-func createStore(t *testing.T, prefix string) *Store {
+func openStore(t *testing.T, prefix string) *Store {
 	tempDir := "test_data"
-	err := os.MkdirAll(tempDir, 0755)
-	assert(t, err == nil, fmt.Sprintf("Failed to create temp dir: %v", err))
-
 	store := &Store{
 		DataDir:       tempDir,
 		IndexFileName: prefix + "index.txt",
 		DataFileName:  prefix + "data.bin",
 	}
-	path := filepath.Join(tempDir, store.DataFileName)
-	os.Remove(path)
-	path = filepath.Join(tempDir, store.IndexFileName)
-	os.Remove(path)
-
-	err = OpenStore(store)
+	err := OpenStore(store)
 	assert(t, err == nil, fmt.Sprintf("Failed to open store: %v", err))
 	return store
+}
+
+func createStore(t *testing.T, prefix string) *Store {
+	tempDir := "test_data"
+	err := os.MkdirAll(tempDir, 0755)
+	assert(t, err == nil, fmt.Sprintf("Failed to create temp dir: %v", err))
+	path := filepath.Join(tempDir, prefix+"data.bin")
+	os.Remove(path)
+	path = filepath.Join(tempDir, prefix+"index.txt")
+	os.Remove(path)
+	return openStore(t, prefix)
 }
 
 func TestRecordOverwrite(t *testing.T) {
@@ -207,6 +210,11 @@ func TestRecordOverwrite(t *testing.T) {
 		assert(t, rec1.Overwritten == true, "Expected record to be marked as overwritten")
 	}
 
+	// verify overwritten records recognized when reading all records
+	store = openStore(t, "overwrite_")
+	recs := store.Records()
+	assert(t, len(recs) == 2, fmt.Sprintf("Expected 2 records, got %d", len(recs)))
+	assert(t, len(store.allRecords) == 3, fmt.Sprintf("Expected 3 records, got %d", len(store.allRecords)))
 }
 
 func assert(t *testing.T, cond bool, msg string) {
