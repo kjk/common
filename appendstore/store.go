@@ -81,7 +81,7 @@ func (s *Store) Records() []*Record {
 func (s *Store) AllRecords() []*Record {
 	// no direct access to records to ensure thread safety
 	s.mu.Lock()
-	res := append([]*Record{}, s.nonOverwritten...)
+	res := append([]*Record{}, s.allRecords...)
 	s.mu.Unlock()
 	return res
 }
