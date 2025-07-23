@@ -69,8 +69,17 @@ func (s *Store) calcNonOverwritten() {
 	}
 }
 
-// no direct access to records to ensure thread safety
 func (s *Store) Records() []*Record {
+	// no direct access to records to ensure thread safety
+	s.mu.Lock()
+	res := append([]*Record{}, s.nonOverwritten...)
+	s.mu.Unlock()
+	return res
+}
+
+// for debugging
+func (s *Store) AllRecords() []*Record {
+	// no direct access to records to ensure thread safety
 	s.mu.Lock()
 	res := append([]*Record{}, s.nonOverwritten...)
 	s.mu.Unlock()
@@ -164,32 +173,14 @@ func writeToFileAtOffset(file *os.File, offset int64, data []byte, sync bool) er
 	return err
 }
 
-func validateKindAndMeta(kind, meta string) error {
-	// kind cannot be empty or contain spaces or newlines
-	if kind == "" {
-		return fmt.Errorf("kind is empty")
-	}
-	if strings.Contains(kind, " ") {
-		return fmt.Errorf("kind cannot contain spaces")
-	}
-	if strings.Contains(kind, "\n") {
-		return fmt.Errorf("kind cannot contain newlines")
-	}
-	if strings.Contains(meta, "\n") {
-		return fmt.Errorf("metadata cannot contain newlines")
-	}
-	return nil
-}
-
-func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
-	if err := validateKindAndMeta(kind, meta); err != nil {
-		return err
-	}
+func (s *Store) OverwriteRecord(kind string, meta string, data []byte) error {
 	if len(data) == 0 {
-		return s.AppendRecord(kind, nil, meta)
+		return s.AppendRecord(kind, meta, nil)
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// find a record that we can overwrite
 	recToOverwriteIdx := -1
 	neededSize := int64(len(data))
@@ -203,10 +194,8 @@ func (s *Store) OverwriteRecord(kind string, data []byte, meta string) error {
 		// no record to overwrite, append a new one with potentially padding
 		// for future overwrites
 		additionalBytes := (neededSize * int64(s.OverWriteDataExpandPercent)) / 100
-		s.mu.Unlock()
-		return s.appendRecord(kind, data, meta, int(additionalBytes))
+		return s.appendRecord(kind, meta, data, int(additionalBytes))
 	}
-	defer s.mu.Unlock()
 
 	err := s.reopenFiles()
 	if err != nil {
@@ -251,12 +240,27 @@ func serializeRecord(rec *Record) string {
 	return fmt.Sprintf("%d %s %d %s %s\n", rec.Offset, sz, t, rec.Kind, rec.Meta)
 }
 
-func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBytes int) error {
+func validateKindAndMeta(kind, meta string) error {
+	// kind cannot be empty or contain spaces or newlines
+	if kind == "" {
+		return fmt.Errorf("kind is empty")
+	}
+	if strings.Contains(kind, " ") {
+		return fmt.Errorf("kind cannot contain spaces")
+	}
+	if strings.Contains(kind, "\n") {
+		return fmt.Errorf("kind cannot contain newlines")
+	}
+	if strings.Contains(meta, "\n") {
+		return fmt.Errorf("metadata cannot contain newlines")
+	}
+	return nil
+}
+
+func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBytes int) error {
 	if err := validateKindAndMeta(kind, meta); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	err := s.reopenFiles()
 	if err != nil {
@@ -272,10 +276,10 @@ func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBy
 	if size > 0 {
 		rec.Offset = s.currDataOffset
 		nWritten, err := appendToFile(s.dataFile, data, additionalBytes, s.SyncWrite)
+		s.currDataOffset += nWritten
 		if err != nil {
 			return err
 		}
-		s.currDataOffset += nWritten
 	}
 	if additionalBytes > 0 {
 		rec.SizeInFile = rec.Size + int64(additionalBytes)
@@ -292,8 +296,6 @@ func (s *Store) appendRecord(kind string, data []byte, meta string, additionalBy
 }
 
 func (s *Store) appendToDataFile(data []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := s.reopenFiles(); err != nil {
 		return err
@@ -307,8 +309,11 @@ func (s *Store) appendToDataFile(data []byte) error {
 	return nil
 }
 
-func (s *Store) AppendRecord(kind string, data []byte, meta string) error {
-	return s.appendRecord(kind, data, meta, 0)
+func (s *Store) AppendRecord(kind string, meta string, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendRecord(kind, meta, data, 0)
 }
 
 // perf: allow re-using Record
@@ -419,6 +424,7 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	// TODO: not sure if this is needed
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return readFilePart(s.dataFilePath, r.Offset, r.Size)
 }
 

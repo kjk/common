@@ -87,16 +87,16 @@ func getLastRecord(store *Store) *Record {
 func TestStoreWriteAndRead(t *testing.T) {
 	store := createStore(t, "test_")
 	// Test with newline in metadata
-	err := store.AppendRecord("test_kind", []byte("test data"), "meta\nwith\nnewlines")
+	err := store.AppendRecord("test_kind", "meta\nwith\nnewlines", []byte("test data"))
 	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject metadata with newlines, got error: %v", err))
 	// Test kind with spaces
-	err = store.AppendRecord("test kind", []byte("test data"), "meta")
+	err = store.AppendRecord("test kind", "meta", []byte("test data"))
 	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject kind with spaces, got error: %v", err))
 	// Test empty kind
-	err = store.AppendRecord("", []byte("test data"), "meta")
+	err = store.AppendRecord("", "meta", []byte("test data"))
 	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject empty kind, got error: %v", err))
 	// Test kind with newlines
-	err = store.AppendRecord("test\nkind", []byte("test data"), "meta")
+	err = store.AppendRecord("test\nkind", "meta", []byte("test data"))
 	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject kind with newlines, got error: %v", err))
 	// Verify no records were added
 	assert(t, len(store.Records()) == 0, fmt.Sprintf("Expected no records to be added, got %d records", len(store.Records())))
@@ -118,7 +118,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 			currOff += int64(len(d))
 		}
 
-		err = store.AppendRecord(recTest.Kind, recTest.Data, recTest.Meta)
+		err = store.AppendRecord(recTest.Kind, recTest.Meta, recTest.Data)
 		assert(t, err == nil, fmt.Sprintf("Failed to append record: %v", err))
 		rec := getLastRecord(store)
 		verifyRecord(t, i, rec, recTest)
@@ -173,7 +173,7 @@ func TestRecordOverwrite(t *testing.T) {
 	kind := "file"
 	meta := "foo.txt"
 	d := []byte("lala")
-	store.OverwriteRecord(kind, d, meta)
+	store.OverwriteRecord(kind, meta, d)
 	rec1 := getLastRecord(store)
 	{
 		rec := rec1
@@ -188,7 +188,7 @@ func TestRecordOverwrite(t *testing.T) {
 
 	// bigger so will create new record because the size is greater than "lala" * 2
 	d = []byte("lalalala2")
-	store.OverwriteRecord(kind, d, meta)
+	store.OverwriteRecord(kind, meta, d)
 	{
 		rec := getLastRecord(store)
 		assert(t, rec.Size == int64(len(d)), fmt.Sprintf("Expected record size %d, got %d", len(d), rec.Size))
@@ -200,7 +200,7 @@ func TestRecordOverwrite(t *testing.T) {
 
 	// smaller than first record so will overwrite it
 	d = []byte("lolahi")
-	store.OverwriteRecord(kind, d, meta)
+	store.OverwriteRecord(kind, meta, d)
 	{
 		rec := getLastRecord(store)
 		assert(t, rec.Offset == rec1.Offset, fmt.Sprintf("Expected record offset %d, got %d", rec1.Offset, rec.Offset))
