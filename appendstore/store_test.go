@@ -142,6 +142,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 		assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
 		assert(t, bytes.Equal(data, recTest.Data), fmt.Sprintf("Record %d: Data mismatch, expected %s, got %s", i, recTest.Data, data))
 	}
+	validateStore(t, store)
 }
 
 func openStore(t *testing.T, prefix string) *Store {
@@ -172,7 +173,7 @@ func TestRecordOverwrite(t *testing.T) {
 	store.OverWriteDataExpandPercent = 100
 	kind := "file"
 	meta := "foo.txt"
-	d := []byte("lala")
+	d := []byte("lala\n")
 	store.OverwriteRecord(kind, meta, d)
 	rec1 := getLastRecord(store)
 	{
@@ -187,19 +188,20 @@ func TestRecordOverwrite(t *testing.T) {
 	}
 
 	// bigger so will create new record because the size is greater than "lala" * 2
-	d = []byte("lalalala2")
+	d = []byte("lalalalalala\n")
 	store.OverwriteRecord(kind, meta, d)
 	{
 		rec := getLastRecord(store)
-		assert(t, rec.Size == int64(len(d)), fmt.Sprintf("Expected record size %d, got %d", len(d), rec.Size))
-		assert(t, rec.Size*2 == rec.SizeInFile, fmt.Sprintf("Expected record size in file %d, got %d", rec.Size*2, rec.SizeInFile))
+		recStr := serializeRecord(rec)
+		assert(t, rec.Size == int64(len(d)), fmt.Sprintf("Expected record size %d, got %d\n%s", len(d), rec.Size, recStr))
+		assert(t, rec.Size*2 == rec.SizeInFile, fmt.Sprintf("Expected record size in file %d, got %d\n%s", rec.Size*2, rec.SizeInFile, recStr))
 		data, err := store.ReadRecord(rec)
-		assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
-		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s", d, data))
+		assert(t, err == nil, fmt.Sprintf("Failed to read record '%s', error: %v", recStr, err))
+		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s\n%s", d, data, recStr))
 	}
 
 	// smaller than first record so will overwrite it
-	d = []byte("lolahi")
+	d = []byte("lolahi\n")
 	store.OverwriteRecord(kind, meta, d)
 	{
 		rec := getLastRecord(store)
@@ -209,12 +211,45 @@ func TestRecordOverwrite(t *testing.T) {
 		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s", d, data))
 		assert(t, rec1.Overwritten == true, "Expected record to be marked as overwritten")
 	}
-
+	d = []byte("and a big one here boss\n")
+	store.OverwriteRecord(kind, meta, d)
+	validateStore(t, store)
 	// verify overwritten records recognized when reading all records
 	store = openStore(t, "overwrite_")
+	validateStore(t, store)
 	recs := store.Records()
 	assert(t, len(recs) == 2, fmt.Sprintf("Expected 2 records, got %d", len(recs)))
-	assert(t, len(store.allRecords) == 3, fmt.Sprintf("Expected 3 records, got %d", len(store.allRecords)))
+	assert(t, len(store.allRecords) == 4, fmt.Sprintf("Expected 4 records, got %d", len(store.allRecords)))
+}
+
+func validateStore(t *testing.T, store *Store) {
+	if store == nil {
+		t.Fatal("Store is nil")
+	}
+	dataPath := filepath.Join(store.DataDir, store.DataFileName)
+	dataSize := int64(0)
+	if st, err := os.Stat(dataPath); os.IsNotExist(err) {
+		t.Fatalf("Data file %s does not exist", dataPath)
+	} else {
+		dataSize = st.Size()
+	}
+	recs := store.Records()
+	for _, rec := range recs {
+		recStr := serializeRecord(rec)
+		if rec.Offset < 0 || rec.Size < 0 || rec.TimestampMs < 0 {
+			t.Fatalf("Invalid record: %+v,\n%s", rec, recStr)
+		}
+		sz := rec.Size
+		if rec.SizeInFile > 0 {
+			sz = rec.SizeInFile
+		}
+		if rec.Offset+sz > dataSize {
+			t.Fatalf("Record exceeds data file size: offset %d, size %d, data size %d\n%s", rec.Offset, sz, dataSize, recStr)
+		}
+		if rec.SizeInFile > 0 && rec.SizeInFile < rec.Size {
+			t.Fatalf("SizeInFile is less than Size: SizeInFile %d, Size %d\n%s", rec.SizeInFile, rec.Size, recStr)
+		}
+	}
 }
 
 func assert(t *testing.T, cond bool, msg string) {

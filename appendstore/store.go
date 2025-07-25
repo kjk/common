@@ -135,19 +135,20 @@ func (s *Store) CloseFiles() error {
 }
 
 func appendToFile(file *os.File, data []byte, additionalBytes int, sync bool) (int64, error) {
-	_, err := file.Write(data)
+	if additionalBytes > 0 {
+		d2 := make([]byte, len(data)+additionalBytes)
+		copy(d2, data)
+		for i := len(data); i < len(d2); i++ {
+			d2[i] = 32 // fill with spaces
+		}
+		data = d2
+	}
+	nWritten, err := file.Write(data)
 	if err != nil {
 		return 0, err
 	}
-	if additionalBytes > 0 {
-		d := make([]byte, additionalBytes)
-		for i := 0; i < additionalBytes; i++ {
-			d[i] = 32 // fill with spaces
-		}
-		_, err = file.Write(d)
-		if err != nil {
-			return 0, err
-		}
+	if nWritten < len(data) {
+		return 0, fmt.Errorf("failed to write all data to file: wrote %d bytes, expected %d bytes", nWritten, len(data))
 	}
 	if sync {
 		err = file.Sync()
@@ -155,7 +156,7 @@ func appendToFile(file *os.File, data []byte, additionalBytes int, sync bool) (i
 			return 0, err
 		}
 	}
-	return int64(len(data) + additionalBytes), nil
+	return int64(nWritten), nil
 }
 
 func writeToFileAtOffset(file *os.File, offset int64, data []byte, sync bool) error {
