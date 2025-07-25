@@ -86,7 +86,7 @@ func (s *Store) AllRecords() []*Record {
 	return res
 }
 
-func openFileForAppend(path string, fp **os.File) (int64, error) {
+func openFileSeekToEnd(path string, fp **os.File) (int64, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return 0, err
@@ -102,13 +102,13 @@ func openFileForAppend(path string, fp **os.File) (int64, error) {
 
 func (s *Store) reopenFiles() error {
 	if s.indexFile == nil {
-		_, err := openFileForAppend(s.indexFilePath, &s.indexFile)
+		_, err := openFileSeekToEnd(s.indexFilePath, &s.indexFile)
 		if err != nil {
 			return fmt.Errorf("failed to open index file for appending: %w", err)
 		}
 	}
 	if s.dataFile == nil {
-		off, err := openFileForAppend(s.dataFilePath, &s.dataFile)
+		off, err := openFileSeekToEnd(s.dataFilePath, &s.dataFile)
 		if err != nil {
 			s.CloseFiles()
 			return err
@@ -229,8 +229,7 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBy
 	}
 	if size > 0 {
 		rec.Offset = s.currDataOffset
-		nWritten, err := appendToFile(s.dataFile, data, additionalBytes, s.SyncWrite)
-		s.currDataOffset += nWritten
+		err := s.appendToDataFile(data, additionalBytes)
 		if err != nil {
 			return err
 		}
@@ -249,13 +248,16 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBy
 	return nil
 }
 
-func (s *Store) appendToDataFile(data []byte) error {
-
+func (s *Store) appendToDataFile(data []byte, additionalBytes int) error {
 	if err := s.reopenFiles(); err != nil {
 		return err
 	}
+	_, err := s.dataFile.Seek(0, io.SeekEnd) // move to the end of the file
+	if err != nil {
+		return err
+	}
 
-	if nWritten, err := appendToFile(s.dataFile, data, 0, s.SyncWrite); err != nil {
+	if nWritten, err := appendToFile(s.dataFile, data, additionalBytes, s.SyncWrite); err != nil {
 		return err
 	} else {
 		s.currDataOffset += nWritten

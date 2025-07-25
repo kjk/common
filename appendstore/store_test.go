@@ -113,7 +113,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 			// this is useful if AppendRecord() fails with partial write, without recording that in the index
 			// we still want things to work if this happens
 			d := []byte("lalalala\n")
-			err = store.appendToDataFile(d)
+			err = store.appendToDataFile(d, 0)
 			assert(t, err == nil, fmt.Sprintf("Failed to append non-indexed data: %v", err))
 			currOff += int64(len(d))
 		}
@@ -214,12 +214,15 @@ func TestRecordOverwrite(t *testing.T) {
 	d = []byte("and a big one here boss\n")
 	store.OverwriteRecord(kind, meta, d)
 	validateStore(t, store)
+	store.AppendRecord(kind, meta, d)
+	validateStore(t, store)
+
 	// verify overwritten records recognized when reading all records
 	store = openStore(t, "overwrite_")
 	validateStore(t, store)
 	recs := store.Records()
-	assert(t, len(recs) == 2, fmt.Sprintf("Expected 2 records, got %d", len(recs)))
-	assert(t, len(store.allRecords) == 4, fmt.Sprintf("Expected 4 records, got %d", len(store.allRecords)))
+	assert(t, len(recs) == 3, fmt.Sprintf("Expected 3 records, got %d", len(recs)))
+	assert(t, len(store.allRecords) == 5, fmt.Sprintf("Expected 5 all records, got %d", len(store.allRecords)))
 }
 
 func validateStore(t *testing.T, store *Store) {
@@ -244,7 +247,7 @@ func validateStore(t *testing.T, store *Store) {
 			sz = rec.SizeInFile
 		}
 		if rec.Offset+sz > dataSize {
-			t.Fatalf("Record exceeds data file size: offset %d, size %d, data size %d\n%s", rec.Offset, sz, dataSize, recStr)
+			t.Fatalf("Record exceeds data file size: offset %d, size %d, off+size: %d, data size %d\n%s", rec.Offset, sz, rec.Offset+sz, dataSize, recStr)
 		}
 		if rec.SizeInFile > 0 && rec.SizeInFile < rec.Size {
 			t.Fatalf("SizeInFile is less than Size: SizeInFile %d, Size %d\n%s", rec.SizeInFile, rec.Size, recStr)
