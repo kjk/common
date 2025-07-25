@@ -173,56 +173,6 @@ func writeToFileAtOffset(file *os.File, offset int64, data []byte, sync bool) er
 	return err
 }
 
-func (s *Store) OverwriteRecord(kind string, meta string, data []byte) error {
-	if len(data) == 0 {
-		return s.AppendRecord(kind, meta, nil)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// find a record that we can overwrite
-	recToOverwriteIdx := -1
-	neededSize := int64(len(data))
-	for i, rec := range s.allRecords {
-		if rec.Kind == kind && rec.Meta == meta && rec.SizeInFile >= neededSize {
-			recToOverwriteIdx = i
-			break
-		}
-	}
-	if recToOverwriteIdx == -1 {
-		// no record to overwrite, append a new one with potentially padding
-		// for future overwrites
-		additionalBytes := (neededSize * int64(s.OverWriteDataExpandPercent)) / 100
-		return s.appendRecord(kind, meta, data, int(additionalBytes))
-	}
-
-	err := s.reopenFiles()
-	if err != nil {
-		return err
-	}
-	recOverwritten := s.allRecords[recToOverwriteIdx]
-	offset := recOverwritten.Offset
-	recOverwritten.Overwritten = true
-	writeToFileAtOffset(s.dataFile, offset, data, s.SyncWrite)
-
-	rec := &Record{
-		Offset:     offset,
-		Size:       int64(len(data)),
-		SizeInFile: 0,
-		Kind:       kind,
-		Meta:       meta,
-	}
-	indexLine := serializeRecord(rec)
-	_, err = appendToFile(s.indexFile, []byte(indexLine), 0, s.SyncWrite)
-	if err != nil {
-		return err
-	}
-	s.allRecords = append(s.allRecords, rec)
-	s.calcNonOverwritten()
-	return nil
-}
-
 // format of the index line:
 // <offset> <length>:[<length in file>] <timestamp> <kind> [<meta>]
 func serializeRecord(rec *Record) string {
@@ -232,7 +182,9 @@ func serializeRecord(rec *Record) string {
 	} else {
 		sz = fmt.Sprintf("%d", rec.Size)
 	}
-	rec.TimestampMs = time.Now().UTC().UnixMilli()
+	if rec.TimestampMs == 0 {
+		rec.TimestampMs = time.Now().UTC().UnixMilli()
+	}
 	t := rec.TimestampMs
 	if rec.Meta == "" {
 		return fmt.Sprintf("%d %s %d %s\n", rec.Offset, sz, t, rec.Kind)
@@ -257,7 +209,7 @@ func validateKindAndMeta(kind, meta string) error {
 	return nil
 }
 
-func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBytes int) error {
+func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBytes int, timestampMs int64) error {
 	if err := validateKindAndMeta(kind, meta); err != nil {
 		return err
 	}
@@ -269,9 +221,10 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBy
 
 	size := int64(len(data))
 	rec := &Record{
-		Size: size,
-		Kind: kind,
-		Meta: meta,
+		Size:        size,
+		Kind:        kind,
+		Meta:        meta,
+		TimestampMs: timestampMs,
 	}
 	if size > 0 {
 		rec.Offset = s.currDataOffset
@@ -313,7 +266,72 @@ func (s *Store) AppendRecord(kind string, meta string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.appendRecord(kind, meta, data, 0)
+	return s.appendRecord(kind, meta, data, 0, 0)
+}
+
+func (s *Store) AppendRecordWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendRecord(kind, meta, data, 0, timestampMs)
+}
+
+func (s *Store) overwriteRecord(kind string, meta string, data []byte, timestampMs int64) error {
+	if len(data) == 0 {
+		return s.AppendRecordWithTimestamp(kind, meta, nil, timestampMs)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// find a record that we can overwrite
+	recToOverwriteIdx := -1
+	neededSize := int64(len(data))
+	for i, rec := range s.allRecords {
+		if rec.Kind == kind && rec.Meta == meta && rec.SizeInFile >= neededSize {
+			recToOverwriteIdx = i
+			break
+		}
+	}
+	if recToOverwriteIdx == -1 {
+		// no record to overwrite, append a new one with potentially padding
+		// for future overwrites
+		additionalBytes := (neededSize * int64(s.OverWriteDataExpandPercent)) / 100
+		return s.appendRecord(kind, meta, data, int(additionalBytes), timestampMs)
+	}
+
+	err := s.reopenFiles()
+	if err != nil {
+		return err
+	}
+	recOverwritten := s.allRecords[recToOverwriteIdx]
+	offset := recOverwritten.Offset
+	recOverwritten.Overwritten = true
+	writeToFileAtOffset(s.dataFile, offset, data, s.SyncWrite)
+
+	rec := &Record{
+		Offset:      offset,
+		Size:        int64(len(data)),
+		SizeInFile:  0,
+		Kind:        kind,
+		Meta:        meta,
+		TimestampMs: timestampMs,
+	}
+	indexLine := serializeRecord(rec)
+	_, err = appendToFile(s.indexFile, []byte(indexLine), 0, s.SyncWrite)
+	if err != nil {
+		return err
+	}
+	s.allRecords = append(s.allRecords, rec)
+	s.calcNonOverwritten()
+	return nil
+}
+
+func (s *Store) OverwriteRecordWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
+	return s.overwriteRecord(kind, meta, data, timestampMs)
+}
+
+func (s *Store) OverwriteRecord(kind string, meta string, data []byte) error {
+	return s.overwriteRecord(kind, meta, data, 0)
 }
 
 // perf: allow re-using Record
