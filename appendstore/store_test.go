@@ -424,3 +424,171 @@ func TestInlineRecordMultiple(t *testing.T) {
 		assert(t, bytes.Equal(readData, td.data), fmt.Sprintf("After reopen, record %d: data mismatch", i))
 	}
 }
+
+func TestAppendRecordFile(t *testing.T) {
+	store := createStore(t, "file_")
+
+	// Test basic file record
+	kind := "attachment"
+	meta := "document.pdf"
+	data := []byte("PDF content here")
+	fileName := "doc1.dat"
+
+	err := store.AppendRecordFile(kind, meta, data, fileName)
+	assert(t, err == nil, fmt.Sprintf("Failed to append file record: %v", err))
+
+	rec := getLastRecord(store)
+	assert(t, rec.Kind == kind, fmt.Sprintf("Expected kind %s, got %s", kind, rec.Kind))
+	assert(t, rec.Meta == meta, fmt.Sprintf("Expected meta %s, got %s", meta, rec.Meta))
+	assert(t, rec.Size == int64(len(data)), fmt.Sprintf("Expected size %d, got %d", len(data), rec.Size))
+	assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s, got %s", fileName, rec.FileName))
+	assert(t, rec.DataInline == false, "Expected DataInline to be false")
+
+	// Read back the data
+	readData, err := store.ReadRecord(rec)
+	assert(t, err == nil, fmt.Sprintf("Failed to read file record: %v", err))
+	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch, expected %s, got %s", data, readData))
+
+	// Verify the file exists on disk
+	filePath := filepath.Join(store.DataDir, fileName)
+	fileData, err := os.ReadFile(filePath)
+	assert(t, err == nil, fmt.Sprintf("Failed to read file from disk: %v", err))
+	assert(t, bytes.Equal(fileData, data), fmt.Sprintf("File data mismatch"))
+
+	// Test error: fileName with space
+	err = store.AppendRecordFile("test", "meta", []byte("data"), "file name.dat")
+	assert(t, err != nil, "Expected error for fileName with space")
+
+	// Test error: empty fileName
+	err = store.AppendRecordFile("test", "meta", []byte("data"), "")
+	assert(t, err != nil, "Expected error for empty fileName")
+
+	// Test validation errors (kind, meta)
+	err = store.AppendRecordFile("", meta, data, "file2.dat")
+	assert(t, err != nil, "Expected error for empty kind")
+	err = store.AppendRecordFile("test kind", meta, data, "file3.dat")
+	assert(t, err != nil, "Expected error for kind with spaces")
+
+	// Add another file record
+	data2 := []byte("Another file content")
+	fileName2 := "doc2.dat"
+	err = store.AppendRecordFile("attachment", "image.png", data2, fileName2)
+	assert(t, err == nil, fmt.Sprintf("Failed to append second file record: %v", err))
+
+	// Mix file and regular records
+	regularData := []byte("regular record data")
+	err = store.AppendRecord("regular", "rec1", regularData)
+	assert(t, err == nil, fmt.Sprintf("Failed to append regular record: %v", err))
+
+	// Verify all records
+	recs := store.Records()
+	assert(t, len(recs) == 3, fmt.Sprintf("Expected 3 records, got %d", len(recs)))
+
+	// Reopen store and verify persistence
+	err = store.CloseFiles()
+	assert(t, err == nil, fmt.Sprintf("Failed to close store: %v", err))
+
+	store2 := openStore(t, "file_")
+	recs2 := store2.Records()
+	assert(t, len(recs2) == 3, fmt.Sprintf("Expected 3 records after reopen, got %d", len(recs2)))
+
+	// Verify file record data after reopen
+	for _, rec := range recs2 {
+		if rec.Kind == "attachment" && rec.Meta == "document.pdf" {
+			assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s after reopen, got %s", fileName, rec.FileName))
+			readData, err := store2.ReadRecord(rec)
+			assert(t, err == nil, fmt.Sprintf("Failed to read file record after reopen: %v", err))
+			assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch after reopen"))
+		}
+		if rec.Kind == "regular" {
+			assert(t, rec.FileName == "", "Expected empty fileName for regular record")
+			readData, err := store2.ReadRecord(rec)
+			assert(t, err == nil, fmt.Sprintf("Failed to read regular record after reopen: %v", err))
+			assert(t, bytes.Equal(readData, regularData), fmt.Sprintf("Regular data mismatch"))
+		}
+	}
+}
+
+func TestAppendRecordFileWithTimestamp(t *testing.T) {
+	store := createStore(t, "file_ts_")
+
+	kind := "backup"
+	meta := "snapshot1"
+	data := []byte("backup data here")
+	fileName := "backup1.dat"
+	customTs := int64(1704067200000) // 2024-01-01 00:00:00 UTC
+
+	err := store.AppendRecordFileWithTimestamp(kind, meta, data, fileName, customTs)
+	assert(t, err == nil, fmt.Sprintf("Failed to append file record with timestamp: %v", err))
+
+	rec := getLastRecord(store)
+	assert(t, rec.TimestampMs == customTs, fmt.Sprintf("Expected timestamp %d, got %d", customTs, rec.TimestampMs))
+	assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s, got %s", fileName, rec.FileName))
+
+	readData, err := store.ReadRecord(rec)
+	assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
+	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch"))
+
+	// Reopen and verify timestamp persistence
+	store.CloseFiles()
+	store2 := openStore(t, "file_ts_")
+	recs := store2.Records()
+	assert(t, len(recs) == 1, fmt.Sprintf("Expected 1 record, got %d", len(recs)))
+	assert(t, recs[0].TimestampMs == customTs, fmt.Sprintf("Expected timestamp %d after reopen, got %d", customTs, recs[0].TimestampMs))
+	assert(t, recs[0].FileName == fileName, fmt.Sprintf("Expected fileName %s after reopen, got %s", fileName, recs[0].FileName))
+}
+
+func TestMixedRecordTypes(t *testing.T) {
+	store := createStore(t, "mixed_")
+
+	// Add different types of records
+	regularData := []byte("regular data")
+	err := store.AppendRecord("regular", "meta1", regularData)
+	assert(t, err == nil, fmt.Sprintf("Failed to append regular record: %v", err))
+
+	inlineData := []byte("inline data")
+	err = store.AppendRecordInline("inline", "meta2", inlineData)
+	assert(t, err == nil, fmt.Sprintf("Failed to append inline record: %v", err))
+
+	fileData := []byte("file data")
+	err = store.AppendRecordFile("file", "meta3", fileData, "mixed.dat")
+	assert(t, err == nil, fmt.Sprintf("Failed to append file record: %v", err))
+
+	// Verify all records
+	recs := store.Records()
+	assert(t, len(recs) == 3, fmt.Sprintf("Expected 3 records, got %d", len(recs)))
+
+	// Verify each record type
+	assert(t, recs[0].DataInline == false && recs[0].FileName == "", "Record 0 should be regular")
+	assert(t, recs[1].DataInline == true && recs[1].FileName == "", "Record 1 should be inline")
+	assert(t, recs[2].DataInline == false && recs[2].FileName == "mixed.dat", "Record 2 should be file")
+
+	// Read all records
+	d1, _ := store.ReadRecord(recs[0])
+	assert(t, bytes.Equal(d1, regularData), "Regular data mismatch")
+
+	d2, _ := store.ReadRecord(recs[1])
+	assert(t, bytes.Equal(d2, inlineData), "Inline data mismatch")
+
+	d3, _ := store.ReadRecord(recs[2])
+	assert(t, bytes.Equal(d3, fileData), "File data mismatch")
+
+	// Reopen and verify
+	store.CloseFiles()
+	store2 := openStore(t, "mixed_")
+	recs2 := store2.Records()
+	assert(t, len(recs2) == 3, fmt.Sprintf("Expected 3 records after reopen, got %d", len(recs2)))
+
+	assert(t, recs2[0].DataInline == false && recs2[0].FileName == "", "After reopen: record 0 should be regular")
+	assert(t, recs2[1].DataInline == true && recs2[1].FileName == "", "After reopen: record 1 should be inline")
+	assert(t, recs2[2].DataInline == false && recs2[2].FileName == "mixed.dat", "After reopen: record 2 should be file")
+
+	d1, _ = store2.ReadRecord(recs2[0])
+	assert(t, bytes.Equal(d1, regularData), "After reopen: regular data mismatch")
+
+	d2, _ = store2.ReadRecord(recs2[1])
+	assert(t, bytes.Equal(d2, inlineData), "After reopen: inline data mismatch")
+
+	d3, _ = store2.ReadRecord(recs2[2])
+	assert(t, bytes.Equal(d3, fileData), "After reopen: file data mismatch")
+}

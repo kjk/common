@@ -33,6 +33,8 @@ type Record struct {
 	Overwritten bool
 	// true if data is stored inline in the index file instead of the data file
 	DataInline bool
+	// if not empty, data is stored in this file (relative to DataDir) instead of the data file
+	FileName string
 }
 
 type Store struct {
@@ -219,6 +221,7 @@ func writeToFileAtOffset(file *os.File, offset int64, data []byte, sync bool) er
 // format of the index line:
 // <offset> <length>:[<length in file>] <timestamp> <kind> [<meta>]
 // for inline data, offset is "_" and data follows immediately after the newline
+// for file data, offset is ":<fileName>"
 func serializeRecord(rec *Record) string {
 	sz := ""
 	if rec.SizeInFile > 0 {
@@ -233,6 +236,8 @@ func serializeRecord(rec *Record) string {
 	offsetStr := fmt.Sprintf("%d", rec.Offset)
 	if rec.DataInline {
 		offsetStr = "_"
+	} else if rec.FileName != "" {
+		offsetStr = ":" + rec.FileName
 	}
 	if rec.Meta == "" {
 		return fmt.Sprintf("%s %s %d %s\n", offsetStr, sz, t, rec.Kind)
@@ -406,6 +411,67 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 	return nil
 }
 
+// AppendRecordFile appends a new record with data stored in a separate file.
+// The file is created in DataDir with the given fileName.
+// Returns error if fileName contains a space.
+func (s *Store) AppendRecordFile(kind string, meta string, data []byte, fileName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendRecordFile(kind, meta, data, fileName, 0)
+}
+
+// AppendRecordFileWithTimestamp appends a new record with data stored in a separate file
+// with the specified timestamp in milliseconds.
+func (s *Store) AppendRecordFileWithTimestamp(kind string, meta string, data []byte, fileName string, timestampMs int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendRecordFile(kind, meta, data, fileName, timestampMs)
+}
+
+func (s *Store) appendRecordFile(kind string, meta string, data []byte, fileName string, timestampMs int64) error {
+	if err := validateKindAndMeta(kind, meta); err != nil {
+		return err
+	}
+	if strings.Contains(fileName, " ") {
+		return fmt.Errorf("fileName cannot contain spaces")
+	}
+	if fileName == "" {
+		return fmt.Errorf("fileName cannot be empty")
+	}
+
+	err := s.reopenFiles()
+	if err != nil {
+		return err
+	}
+
+	// Write data to the separate file
+	filePath := filepath.Join(s.DataDir, fileName)
+	err = os.WriteFile(filePath, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write data to file %s: %w", filePath, err)
+	}
+
+	rec := &Record{
+		Size:        int64(len(data)),
+		Kind:        s.internKind(kind),
+		Meta:        meta,
+		TimestampMs: timestampMs,
+		FileName:    fileName,
+	}
+
+	indexLine := serializeRecord(rec)
+	_, err = appendToFile(s.indexFile, []byte(indexLine), 0, s.SyncWrite)
+	if err != nil {
+		return err
+	}
+
+	s.allRecords = append(s.allRecords, rec)
+	s.nonOverwritten = append(s.nonOverwritten, rec)
+	return nil
+}
+
 func (s *Store) overwriteRecord(kind string, meta string, data []byte, timestampMs int64) error {
 	if len(data) == 0 {
 		return s.AppendRecordWithTimestamp(kind, meta, nil, timestampMs)
@@ -490,10 +556,15 @@ func ParseIndexLine(line string, rec *Record) error {
 
 	var err error
 	rec.DataInline = false // reset in case of reuse
+	rec.FileName = ""      // reset in case of reuse
 	if parts[0] == "_" {
 		// Inline data - offset will be set by caller based on file position
 		rec.DataInline = true
 		rec.Offset = 0 // will be set by caller
+	} else if strings.HasPrefix(parts[0], ":") {
+		// File data - data is stored in a separate file
+		rec.FileName = parts[0][1:]
+		rec.Offset = 0
 	} else {
 		rec.Offset, err = strconv.ParseInt(parts[0], 10, 64)
 		if err != nil {
@@ -656,9 +727,10 @@ func readFilePart(path string, offset int64, len int64) ([]byte, error) {
 
 // ReadRecord reads the data for a given record.
 // For inline records (DataInline=true), reads from the index file.
+// For file records (FileName!=""), reads from the specified file in DataDir.
 // For regular records, reads from the data file.
 func (s *Store) ReadRecord(r *Record) ([]byte, error) {
-	if r.Offset < 0 || r.Size == 0 {
+	if r.Size == 0 {
 		return nil, nil
 	}
 	// TODO: not sure if this is needed
@@ -667,6 +739,13 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 
 	if r.DataInline {
 		return readFilePart(s.indexFilePath, r.Offset, r.Size)
+	}
+	if r.FileName != "" {
+		filePath := filepath.Join(s.DataDir, r.FileName)
+		return os.ReadFile(filePath)
+	}
+	if r.Offset < 0 {
+		return nil, nil
 	}
 	return readFilePart(s.dataFilePath, r.Offset, r.Size)
 }
@@ -720,6 +799,12 @@ func OpenStore(s *Store) error {
 	m := make(map[int64]*Record)
 	for _, rec := range s.allRecords {
 		if rec.Size == 0 {
+			continue
+		}
+		// Only check for overwrites on regular records (not inline or file records)
+		// Inline records don't overwrite each other (they each have unique positions in index file)
+		// File records don't overwrite each other (they're separate files)
+		if rec.DataInline || rec.FileName != "" {
 			continue
 		}
 		// this record has the same offset as previous one which means
