@@ -2,7 +2,7 @@
 // an index file and a data file.
 //
 // The store is designed for scenarios where data needs to be persisted
-// efficiently with support for record overwriting and metadata tracking.
+// efficiently with metadata tracking.
 //
 // # Store Structure
 //
@@ -11,8 +11,6 @@
 //   - A data file (default: "data.bin") containing the actual record data
 //
 // Each record has an offset, size, timestamp, kind, and optional metadata.
-// Records can be overwritten in place if the new data fits within the
-// previously allocated space.
 //
 // # Basic Usage
 //

@@ -64,16 +64,6 @@ func TestParseIndexLine(t *testing.T) {
 	assert(t, rec.Kind == "test_kind", fmt.Sprintf("Expected Kind 'test_kind', got '%s'", rec.Kind))
 	assert(t, rec.Meta == "meta data", fmt.Sprintf("Expected Meta 'meta data', got '%s'", rec.Meta))
 
-	// test with SizeInFile
-	err = ParseIndexLine("123 456:789 789 test_kind meta data", &rec)
-	assert(t, err == nil, fmt.Sprintf("ParseIndexLine with SizeInFile failed: %v", err))
-	assert(t, rec.Offset == 123, fmt.Sprintf("Expected Offset 123, got %d", rec.Offset))
-	assert(t, rec.Size == 456, fmt.Sprintf("Expected Size 456, got %d", rec.Size))
-	assert(t, rec.SizeInFile == 789, fmt.Sprintf("Expected SizeInFile 789, got %d", rec.SizeInFile))
-	assert(t, rec.TimestampMs == 789, fmt.Sprintf("Expected TimestampMs 789, got %d", rec.TimestampMs))
-	assert(t, rec.Kind == "test_kind", fmt.Sprintf("Expected Kind 'test_kind', got '%s'", rec.Kind))
-	assert(t, rec.Meta == "meta data", fmt.Sprintf("Expected Meta 'meta data', got '%s'", rec.Meta))
-
 	// Test with invalid line
 	err = ParseIndexLine("invalid line", &rec)
 	assert(t, err != nil, "Expected error for invalid index line, got nil")
@@ -113,7 +103,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 			// this is useful if AppendRecord() fails with partial write, without recording that in the index
 			// we still want things to work if this happens
 			d := []byte("lalalala\n")
-			err = store.appendToDataFile(d, 0)
+			err = store.appendToDataFile(d)
 			assert(t, err == nil, fmt.Sprintf("Failed to append non-indexed data: %v", err))
 			currOff += int64(len(d))
 		}
@@ -168,63 +158,6 @@ func createStore(t *testing.T, prefix string) *Store {
 	return openStore(t, prefix)
 }
 
-func TestRecordOverwrite(t *testing.T) {
-	store := createStore(t, "overwrite_")
-	store.OverWriteDataExpandPercent = 100
-	kind := "file"
-	meta := "foo.txt"
-	d := []byte("lala\n")
-	store.OverwriteRecord(kind, meta, d)
-	rec1 := getLastRecord(store)
-	{
-		rec := rec1
-		assert(t, rec.Kind == kind, fmt.Sprintf("Expected record kind %s, got %s", kind, rec.Kind))
-		assert(t, rec.Meta == meta, fmt.Sprintf("Expected record meta %s, got %s", meta, rec.Meta))
-		assert(t, rec.Size == int64(len(d)), fmt.Sprintf("Expected record size %d, got %d", len(d), rec.Size))
-		assert(t, rec.Size*2 == rec.SizeInFile, fmt.Sprintf("Expected record size in file %d, got %d", rec.Size*2, rec.SizeInFile))
-		data, err := store.ReadRecord(rec)
-		assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
-		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s", d, data))
-	}
-
-	// bigger so will create new record because the size is greater than "lala" * 2
-	d = []byte("lalalalalala\n")
-	store.OverwriteRecord(kind, meta, d)
-	{
-		rec := getLastRecord(store)
-		recStr := serializeRecord(rec)
-		assert(t, rec.Size == int64(len(d)), fmt.Sprintf("Expected record size %d, got %d\n%s", len(d), rec.Size, recStr))
-		assert(t, rec.Size*2 == rec.SizeInFile, fmt.Sprintf("Expected record size in file %d, got %d\n%s", rec.Size*2, rec.SizeInFile, recStr))
-		data, err := store.ReadRecord(rec)
-		assert(t, err == nil, fmt.Sprintf("Failed to read record '%s', error: %v", recStr, err))
-		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s\n%s", d, data, recStr))
-	}
-
-	// smaller than first record so will overwrite it
-	d = []byte("lolahi\n")
-	store.OverwriteRecord(kind, meta, d)
-	{
-		rec := getLastRecord(store)
-		assert(t, rec.Offset == rec1.Offset, fmt.Sprintf("Expected record offset %d, got %d", rec1.Offset, rec.Offset))
-		data, err := store.ReadRecord(rec)
-		assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
-		assert(t, bytes.Equal(data, d), fmt.Sprintf("Record data mismatch, expected %s, got %s", d, data))
-		assert(t, rec1.Overwritten == true, "Expected record to be marked as overwritten")
-	}
-	d = []byte("and a big one here boss\n")
-	store.OverwriteRecord(kind, meta, d)
-	validateStore(t, store)
-	store.AppendRecord(kind, meta, d)
-	validateStore(t, store)
-
-	// verify overwritten records recognized when reading all records
-	store = openStore(t, "overwrite_")
-	validateStore(t, store)
-	recs := store.Records()
-	assert(t, len(recs) == 3, fmt.Sprintf("Expected 3 records, got %d", len(recs)))
-	assert(t, len(store.allRecords) == 5, fmt.Sprintf("Expected 5 all records, got %d", len(store.allRecords)))
-}
-
 func validateStore(t *testing.T, store *Store) {
 	if store == nil {
 		t.Fatal("Store is nil")
@@ -242,15 +175,12 @@ func validateStore(t *testing.T, store *Store) {
 		if rec.Offset < 0 || rec.Size < 0 || rec.TimestampMs < 0 {
 			t.Fatalf("Invalid record: %+v,\n%s", rec, recStr)
 		}
-		sz := rec.Size
-		if rec.SizeInFile > 0 {
-			sz = rec.SizeInFile
+		// Skip inline and file records for data file size checks
+		if rec.DataInline || rec.FileName != "" {
+			continue
 		}
-		if rec.Offset+sz > dataSize {
-			t.Fatalf("Record exceeds data file size: offset %d, size %d, off+size: %d, data size %d\n%s", rec.Offset, sz, rec.Offset+sz, dataSize, recStr)
-		}
-		if rec.SizeInFile > 0 && rec.SizeInFile < rec.Size {
-			t.Fatalf("SizeInFile is less than Size: SizeInFile %d, Size %d\n%s", rec.SizeInFile, rec.Size, recStr)
+		if rec.Offset+rec.Size > dataSize {
+			t.Fatalf("Record exceeds data file size: offset %d, size %d, off+size: %d, data size %d\n%s", rec.Offset, rec.Size, rec.Offset+rec.Size, dataSize, recStr)
 		}
 	}
 }
