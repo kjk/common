@@ -59,6 +59,10 @@ type Store struct {
 	allRecords     []*Record
 	nonOverwritten []*Record
 
+	// internedKinds stores unique Kind strings to reduce memory usage
+	// when many records share the same Kind
+	internedKinds []string
+
 	mu             sync.Mutex
 	currDataOffset int64
 }
@@ -70,6 +74,19 @@ func (s *Store) calcNonOverwritten() {
 			s.nonOverwritten = append(s.nonOverwritten, rec)
 		}
 	}
+}
+
+// internKind returns an interned version of the kind string.
+// If the kind already exists in internedKinds, returns the existing string.
+// Otherwise, adds it to internedKinds and returns it.
+func (s *Store) internKind(kind string) string {
+	for _, k := range s.internedKinds {
+		if k == kind {
+			return k
+		}
+	}
+	s.internedKinds = append(s.internedKinds, kind)
+	return kind
 }
 
 // Records returns all records
@@ -253,7 +270,7 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, additionalBy
 	size := int64(len(data))
 	rec := &Record{
 		Size:        size,
-		Kind:        kind,
+		Kind:        s.internKind(kind),
 		Meta:        meta,
 		TimestampMs: timestampMs,
 	}
@@ -346,7 +363,7 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 
 	rec := &Record{
 		Size:        int64(len(data)),
-		Kind:        kind,
+		Kind:        s.internKind(kind),
 		Meta:        meta,
 		TimestampMs: timestampMs,
 		DataInline:  true,
@@ -423,7 +440,7 @@ func (s *Store) overwriteRecord(kind string, meta string, data []byte, timestamp
 		Offset:      offset,
 		Size:        int64(len(data)),
 		SizeInFile:  0,
-		Kind:        kind,
+		Kind:        s.internKind(kind),
 		Meta:        meta,
 		TimestampMs: timestampMs,
 	}
@@ -522,7 +539,8 @@ func ParseIndexLine(line string, rec *Record) error {
 
 // ParseIndexFromFile parses index lines from a file into a slice of Records.
 // This function properly handles inline data by tracking file positions.
-func ParseIndexFromFile(path string) ([]*Record, error) {
+// If internKind is not nil, it will be called to intern the Kind string.
+func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -555,6 +573,10 @@ func ParseIndexFromFile(path string) ([]*Record, error) {
 		err = ParseIndexLine(line, rec)
 		if err != nil {
 			return nil, err
+		}
+
+		if internKind != nil {
+			rec.Kind = internKind(rec.Kind)
 		}
 
 		if rec.DataInline {
@@ -649,8 +671,8 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	return readFilePart(s.dataFilePath, r.Offset, r.Size)
 }
 
-func readAllRecords(path string) ([]*Record, error) {
-	return ParseIndexFromFile(path)
+func readAllRecords(path string, internKind func(string) string) ([]*Record, error) {
+	return ParseIndexFromFile(path, internKind)
 }
 
 // OpenStore initializes the Store by loading existing records from the index file.
@@ -689,7 +711,7 @@ func OpenStore(s *Store) error {
 		file.Close()
 	}
 
-	s.allRecords, err = readAllRecords(s.indexFilePath)
+	s.allRecords, err = readAllRecords(s.indexFilePath, s.internKind)
 	if err != nil {
 		return fmt.Errorf("failed to read records from index file: %w", err)
 	}
