@@ -37,10 +37,10 @@ func KeyValueMarshal(keyValues ...string) (string, error) {
 					buf.WriteRune(r)
 				case '\n':
 					buf.WriteByte('n')
-				case '\t':
-					buf.WriteByte('t')
 				case '\r':
 					buf.WriteByte('r')
+				case '\t':
+					buf.WriteByte('t')
 				default:
 					panic("invalid state")
 				}
