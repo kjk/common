@@ -425,6 +425,73 @@ func TestInlineRecordMultiple(t *testing.T) {
 	}
 }
 
+func TestInlineRecordNewlineHandling(t *testing.T) {
+	store := createStore(t, "inline_newline_")
+
+	// Test data that ends with newline
+	dataWithNewline := []byte("data ending with newline\n")
+	err := store.AppendRecordInline("with_newline", "meta1", dataWithNewline)
+	assert(t, err == nil, fmt.Sprintf("Failed to append inline record with newline: %v", err))
+
+	// Test data that does NOT end with newline
+	dataWithoutNewline := []byte("data without newline")
+	err = store.AppendRecordInline("without_newline", "meta2", dataWithoutNewline)
+	assert(t, err == nil, fmt.Sprintf("Failed to append inline record without newline: %v", err))
+
+	// Test another record with newline to ensure parsing continues correctly
+	dataWithNewline2 := []byte("another with newline\n")
+	err = store.AppendRecordInline("with_newline2", "meta3", dataWithNewline2)
+	assert(t, err == nil, fmt.Sprintf("Failed to append second inline record with newline: %v", err))
+
+	// Test another record without newline
+	dataWithoutNewline2 := []byte("another without newline")
+	err = store.AppendRecordInline("without_newline2", "meta4", dataWithoutNewline2)
+	assert(t, err == nil, fmt.Sprintf("Failed to append second inline record without newline: %v", err))
+
+	// Verify all records before reopen
+	recs := store.Records()
+	assert(t, len(recs) == 4, fmt.Sprintf("Expected 4 records, got %d", len(recs)))
+
+	// Verify data integrity
+	d1, _ := store.ReadRecord(recs[0])
+	assert(t, bytes.Equal(d1, dataWithNewline), "Data with newline mismatch")
+	d2, _ := store.ReadRecord(recs[1])
+	assert(t, bytes.Equal(d2, dataWithoutNewline), "Data without newline mismatch")
+	d3, _ := store.ReadRecord(recs[2])
+	assert(t, bytes.Equal(d3, dataWithNewline2), "Second data with newline mismatch")
+	d4, _ := store.ReadRecord(recs[3])
+	assert(t, bytes.Equal(d4, dataWithoutNewline2), "Second data without newline mismatch")
+
+	// Reopen and verify persistence
+	store.CloseFiles()
+	store2 := openStore(t, "inline_newline_")
+	recs2 := store2.Records()
+	assert(t, len(recs2) == 4, fmt.Sprintf("Expected 4 records after reopen, got %d", len(recs2)))
+
+	// Verify data after reopen
+	d1, err = store2.ReadRecord(recs2[0])
+	assert(t, err == nil, fmt.Sprintf("Failed to read record 0 after reopen: %v", err))
+	assert(t, bytes.Equal(d1, dataWithNewline), "Data with newline mismatch after reopen")
+
+	d2, err = store2.ReadRecord(recs2[1])
+	assert(t, err == nil, fmt.Sprintf("Failed to read record 1 after reopen: %v", err))
+	assert(t, bytes.Equal(d2, dataWithoutNewline), "Data without newline mismatch after reopen")
+
+	d3, err = store2.ReadRecord(recs2[2])
+	assert(t, err == nil, fmt.Sprintf("Failed to read record 2 after reopen: %v", err))
+	assert(t, bytes.Equal(d3, dataWithNewline2), "Second data with newline mismatch after reopen")
+
+	d4, err = store2.ReadRecord(recs2[3])
+	assert(t, err == nil, fmt.Sprintf("Failed to read record 3 after reopen: %v", err))
+	assert(t, bytes.Equal(d4, dataWithoutNewline2), "Second data without newline mismatch after reopen")
+
+	// Verify record sizes are correct (should match original data length)
+	assert(t, recs2[0].Size == int64(len(dataWithNewline)), fmt.Sprintf("Record 0 size mismatch: expected %d, got %d", len(dataWithNewline), recs2[0].Size))
+	assert(t, recs2[1].Size == int64(len(dataWithoutNewline)), fmt.Sprintf("Record 1 size mismatch: expected %d, got %d", len(dataWithoutNewline), recs2[1].Size))
+	assert(t, recs2[2].Size == int64(len(dataWithNewline2)), fmt.Sprintf("Record 2 size mismatch: expected %d, got %d", len(dataWithNewline2), recs2[2].Size))
+	assert(t, recs2[3].Size == int64(len(dataWithoutNewline2)), fmt.Sprintf("Record 3 size mismatch: expected %d, got %d", len(dataWithoutNewline2), recs2[3].Size))
+}
+
 func TestAppendRecordFile(t *testing.T) {
 	store := createStore(t, "file_")
 

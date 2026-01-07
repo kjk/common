@@ -397,6 +397,14 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 		if err != nil {
 			return err
 		}
+		// For readability, add a newline after inline data if it doesn't end with one
+		// This newline is not included in the recorded size
+		if data[len(data)-1] != '\n' {
+			_, err = s.indexFile.WriteString("\n")
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	if s.SyncWrite {
@@ -660,6 +668,12 @@ func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record,
 				if err != nil {
 					return nil, fmt.Errorf("error skipping inline data: %w", err)
 				}
+			}
+			// Skip trailing newline added for readability (if present)
+			nextByte, err := reader.Peek(1)
+			if err == nil && len(nextByte) > 0 && nextByte[0] == '\n' {
+				reader.ReadByte()
+				currentOffset++
 			}
 		} else {
 			currentOffset += lineLen
