@@ -91,6 +91,20 @@ func (s *Store) RecordsIter() iter.Seq[*Record] {
 	}
 }
 
+// RecordsIterBackward returns an iterator over all records in reverse order
+// Usage: for rec := range store.RecordsIterBackward() { ... }
+func (s *Store) RecordsIterBackward() iter.Seq[*Record] {
+	return func(yield func(*Record) bool) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for i := len(s.allRecords) - 1; i >= 0; i-- {
+			if !yield(s.allRecords[i]) {
+				return
+			}
+		}
+	}
+}
+
 func openFileSeekToEnd(path string, fp **os.File) (int64, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
