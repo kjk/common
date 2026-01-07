@@ -14,7 +14,7 @@ import (
 )
 
 type Record struct {
-	// offset in data file, 0 means no data
+	// offset in data file (or index file if DataInline is true), 0 means no data
 	Offset int64
 	// size of the data in bytes, 0 means no data
 	Size int64
@@ -31,6 +31,8 @@ type Record struct {
 	// true if this record was over-written which means there's a newer version
 	// with the same kind and meta after it
 	Overwritten bool
+	// true if data is stored inline in the index file instead of the data file
+	DataInline bool
 }
 
 type Store struct {
@@ -199,6 +201,7 @@ func writeToFileAtOffset(file *os.File, offset int64, data []byte, sync bool) er
 
 // format of the index line:
 // <offset> <length>:[<length in file>] <timestamp> <kind> [<meta>]
+// for inline data, offset is "_" and data follows immediately after the newline
 func serializeRecord(rec *Record) string {
 	sz := ""
 	if rec.SizeInFile > 0 {
@@ -210,10 +213,14 @@ func serializeRecord(rec *Record) string {
 		rec.TimestampMs = time.Now().UTC().UnixMilli()
 	}
 	t := rec.TimestampMs
-	if rec.Meta == "" {
-		return fmt.Sprintf("%d %s %d %s\n", rec.Offset, sz, t, rec.Kind)
+	offsetStr := fmt.Sprintf("%d", rec.Offset)
+	if rec.DataInline {
+		offsetStr = "_"
 	}
-	return fmt.Sprintf("%d %s %d %s %s\n", rec.Offset, sz, t, rec.Kind, rec.Meta)
+	if rec.Meta == "" {
+		return fmt.Sprintf("%s %s %d %s\n", offsetStr, sz, t, rec.Kind)
+	}
+	return fmt.Sprintf("%s %s %d %s %s\n", offsetStr, sz, t, rec.Kind, rec.Meta)
 }
 
 func validateKindAndMeta(kind, meta string) error {
@@ -308,6 +315,80 @@ func (s *Store) AppendRecordWithTimestamp(kind string, meta string, data []byte,
 	return s.appendRecord(kind, meta, data, 0, timestampMs)
 }
 
+// AppendRecordInline appends a new record with data stored inline in the index file.
+// This is useful for small data that doesn't warrant a separate entry in the data file.
+// The data is stored immediately after the index line in the index file.
+func (s *Store) AppendRecordInline(kind string, meta string, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendRecordInline(kind, meta, data, 0)
+}
+
+// AppendRecordInlineWithTimestamp appends a new record with data stored inline in the index file
+// with the specified timestamp in milliseconds.
+func (s *Store) AppendRecordInlineWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.appendRecordInline(kind, meta, data, timestampMs)
+}
+
+func (s *Store) appendRecordInline(kind string, meta string, data []byte, timestampMs int64) error {
+	if err := validateKindAndMeta(kind, meta); err != nil {
+		return err
+	}
+
+	err := s.reopenFiles()
+	if err != nil {
+		return err
+	}
+
+	rec := &Record{
+		Size:        int64(len(data)),
+		Kind:        kind,
+		Meta:        meta,
+		TimestampMs: timestampMs,
+		DataInline:  true,
+	}
+
+	indexLine := serializeRecord(rec)
+
+	// Get current position in index file to calculate where inline data will be
+	currentPos, err := s.indexFile.Seek(0, io.SeekEnd)
+	if err != nil {
+		return err
+	}
+
+	// The inline data starts right after the index line
+	rec.Offset = currentPos + int64(len(indexLine))
+
+	// Write the index line
+	_, err = s.indexFile.WriteString(indexLine)
+	if err != nil {
+		return err
+	}
+
+	// Write the inline data immediately after
+	if len(data) > 0 {
+		_, err = s.indexFile.Write(data)
+		if err != nil {
+			return err
+		}
+	}
+
+	if s.SyncWrite {
+		err = s.indexFile.Sync()
+		if err != nil {
+			return err
+		}
+	}
+
+	s.allRecords = append(s.allRecords, rec)
+	s.nonOverwritten = append(s.nonOverwritten, rec)
+	return nil
+}
+
 func (s *Store) overwriteRecord(kind string, meta string, data []byte, timestampMs int64) error {
 	if len(data) == 0 {
 		return s.AppendRecordWithTimestamp(kind, meta, nil, timestampMs)
@@ -382,6 +463,8 @@ func (s *Store) OverwriteRecord(kind string, meta string, data []byte) error {
 
 // ParseIndexLine parses a single line from the index file into a Record.
 // rec is passed in to allow re-using Record for perf. can be nil
+// For inline records (offset="_"), the caller must set rec.Offset to the
+// actual byte position in the index file where the data starts.
 func ParseIndexLine(line string, rec *Record) error {
 	parts := strings.SplitN(line, " ", 5)
 	if len(parts) < 4 {
@@ -389,12 +472,19 @@ func ParseIndexLine(line string, rec *Record) error {
 	}
 
 	var err error
-	rec.Offset, err = strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid offset '%s' in index line: %s", parts[0], line)
-	}
-	if rec.Offset < 0 {
-		return fmt.Errorf("invalid offset '%s' in index line: %s", parts[0], line)
+	rec.DataInline = false // reset in case of reuse
+	if parts[0] == "_" {
+		// Inline data - offset will be set by caller based on file position
+		rec.DataInline = true
+		rec.Offset = 0 // will be set by caller
+	} else {
+		rec.Offset, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid offset '%s' in index line: %s", parts[0], line)
+		}
+		if rec.Offset < 0 {
+			return fmt.Errorf("invalid offset '%s' in index line: %s", parts[0], line)
+		}
 	}
 
 	rec.SizeInFile = 0 // possibly reusing rec so needs to reset
@@ -431,14 +521,60 @@ func ParseIndexLine(line string, rec *Record) error {
 }
 
 // ParseIndexFromFile parses index lines from a file into a slice of Records.
+// This function properly handles inline data by tracking file positions.
 func ParseIndexFromFile(path string) ([]*Record, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	return ParseIndexFromScanner(scanner)
+
+	reader := bufio.NewReader(file)
+	var records []*Record
+	var currentOffset int64 = 0
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err == io.EOF {
+			if line == "" {
+				break
+			}
+			// process last line without newline
+		} else if err != nil {
+			return nil, fmt.Errorf("error reading index file: %w", err)
+		}
+
+		lineLen := int64(len(line))
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			currentOffset += lineLen
+			continue
+		}
+
+		rec := &Record{}
+		err = ParseIndexLine(line, rec)
+		if err != nil {
+			return nil, err
+		}
+
+		if rec.DataInline {
+			// Data follows immediately after this line
+			rec.Offset = currentOffset + lineLen
+			currentOffset += lineLen + rec.Size
+			// Skip past the inline data in the buffer
+			if rec.Size > 0 {
+				_, err = io.CopyN(io.Discard, reader, rec.Size)
+				if err != nil {
+					return nil, fmt.Errorf("error skipping inline data: %w", err)
+				}
+			}
+		} else {
+			currentOffset += lineLen
+		}
+
+		records = append(records, rec)
+	}
+	return records, nil
 }
 
 // ParseIndexFromData parses multiple index lines from a byte slice into a slice of Records.
@@ -497,6 +633,8 @@ func readFilePart(path string, offset int64, len int64) ([]byte, error) {
 }
 
 // ReadRecord reads the data for a given record.
+// For inline records (DataInline=true), reads from the index file.
+// For regular records, reads from the data file.
 func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	if r.Offset < 0 || r.Size == 0 {
 		return nil, nil
@@ -505,6 +643,9 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if r.DataInline {
+		return readFilePart(s.indexFilePath, r.Offset, r.Size)
+	}
 	return readFilePart(s.dataFilePath, r.Offset, r.Size)
 }
 
