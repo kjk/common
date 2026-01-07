@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func fmtArgs(args ...interface{}) string {
+func fmtArgs(args ...any) string {
 	if len(args) == 0 {
 		return ""
 	}
@@ -16,7 +16,7 @@ func fmtArgs(args ...interface{}) string {
 	return fmt.Sprintf(format, args[1:]...)
 }
 
-func panicWithMsg(defaultMsg string, args ...interface{}) {
+func panicWithMsg(defaultMsg string, args ...any) {
 	s := fmtArgs(args...)
 	if s == "" {
 		s = defaultMsg
@@ -24,14 +24,14 @@ func panicWithMsg(defaultMsg string, args ...interface{}) {
 	panic(s)
 }
 
-func panicIfErr(err error, args ...interface{}) {
+func panicIfErr(err error, args ...any) {
 	if err == nil {
 		return
 	}
 	panicWithMsg(err.Error(), args...)
 }
 
-func panicIf(cond bool, args ...interface{}) {
+func panicIf(cond bool, args ...any) {
 	if !cond {
 		return
 	}

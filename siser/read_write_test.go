@@ -296,7 +296,7 @@ func TestRecordSerializeSimple3(t *testing.T) {
 	assert.Equal(t, exp, got)
 }
 
-func testVals(t *testing.T, vals []interface{}, exp string) {
+func testVals(t *testing.T, vals []any, exp string) {
 	var r Record
 	{
 		for i := 0; i < len(vals); i += 2 {
@@ -315,7 +315,7 @@ func testVals(t *testing.T, vals []interface{}, exp string) {
 }
 
 func TestRecordSerializeSimple4(t *testing.T) {
-	vals := []interface{}{"k2", "a\nb", "", "no name", "bu", "gatti ", "no value", "", "bu", "  gatti"}
+	vals := []any{"k2", "a\nb", "", "no name", "bu", "gatti ", "no value", "", "bu", "  gatti"}
 	exp := `k2:+3
 a
 b
@@ -330,7 +330,7 @@ bu:   gatti
 }
 
 func TestRecordSerializeSimple5(t *testing.T) {
-	vals := []interface{}{3, true, false, 88.3, 8, 99}
+	vals := []any{3, true, false, 88.3, 8, 99}
 	exp := `3: true
 false: 88.3
 8: 99

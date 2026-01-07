@@ -176,7 +176,7 @@ func GetBestRemoteAddress(r *http.Request) string {
 	return ""
 }
 
-func getHeader(h http.Header, hdrKey string, mapKey string, m map[string]interface{}) {
+func getHeader(h http.Header, hdrKey string, mapKey string, m map[string]any) {
 	val := h.Get(hdrKey)
 	if len(val) > 0 {
 		m[mapKey] = val
@@ -204,12 +204,12 @@ func getReferrerFromHeaderOrQuery(r *http.Request) string {
 	return referrer
 }
 
-func GetRequestInfo(r *http.Request, m map[string]interface{}, key string) {
+func GetRequestInfo(r *http.Request, m map[string]any, key string) {
 	if r == nil {
 		return
 	}
 	if key != "" {
-		nm := map[string]interface{}{}
+		nm := map[string]any{}
 		m[key] = nm
 		m = nm
 	}

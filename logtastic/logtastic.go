@@ -55,7 +55,7 @@ func ctx() context.Context {
 	return context.Background()
 }
 
-func logf(s string, args ...interface{}) {
+func logf(s string, args ...any) {
 	if len(args) > 0 {
 		s = fmt.Sprintf(s, args...)
 	}
@@ -218,7 +218,7 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	if isShuttingDown.Load() {
 		return
 	}
-	m := map[string]interface{}{}
+	m := map[string]any{}
 	httputil.GetRequestInfo(r, m, "")
 	uri := m["url"].(string)
 	if len(uri) > kMaxURLLen {
@@ -240,7 +240,7 @@ func LogHit(r *http.Request, code int, size int64, dur time.Duration) {
 	logtasticPOST("/api/v1/hit", d, mimeJSON)
 }
 
-func LogEvent(r *http.Request, m map[string]interface{}) {
+func LogEvent(r *http.Request, m map[string]any) {
 	if isShuttingDown.Load() {
 		return
 	}
@@ -274,7 +274,7 @@ func HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// we validate it's json and agument it with ip of the user's browser
-	var m map[string]interface{}
+	var m map[string]any
 	err = json.Unmarshal(d, &m)
 	if err != nil {
 		logf("HandleEvent: json.Unmarshal() failed with '%s'\nbody:\n%s\n", err, limitString(string(d), 100))
@@ -293,7 +293,7 @@ func LogError(r *http.Request, s string) {
 	}
 	writeSiserLog("errors.txt", &FileErrors, []byte(s))
 
-	m := map[string]interface{}{}
+	m := map[string]any{}
 	httputil.GetRequestInfo(r, m, "http")
 	m["error"] = s
 	if BuildHash != "" {

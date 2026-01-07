@@ -83,7 +83,7 @@ func StartServer(srv *server.Server) func() {
 }
 ```
 
-```
+````
 
 Utility functions used above:
 
@@ -98,7 +98,7 @@ func ctx() context.Context {
 	return context.Background()
 }
 
-func panicIf(cond bool, arg ...interface{}) {
+func panicIf(cond bool, arg ...any) {
 	if !cond {
 		return
 	}
@@ -151,4 +151,4 @@ func formatSize(n int64) string {
 	return fmt.Sprintf("%d bytes", n)
 }
 
-```
+````

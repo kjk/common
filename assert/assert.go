@@ -22,11 +22,11 @@ import (
 
 // TestingT is an interface wrapper around *testing.T
 type TestingT interface {
-	Errorf(format string, args ...interface{})
+	Errorf(format string, args ...any)
 }
 
 // isNil checks if a specified object is nil or not, without Failing.
-func isNil(object interface{}) bool {
+func isNil(object any) bool {
 	if object == nil {
 		return true
 	}
@@ -133,7 +133,7 @@ type labeledContent struct {
 	content string
 }
 
-func messageFromMsgAndArgs(msgAndArgs ...interface{}) string {
+func messageFromMsgAndArgs(msgAndArgs ...any) string {
 	if len(msgAndArgs) == 0 || msgAndArgs == nil {
 		return ""
 	}
@@ -151,7 +151,7 @@ func messageFromMsgAndArgs(msgAndArgs ...interface{}) string {
 }
 
 // Fail reports a failure through
-func Fail(t TestingT, failureMessage string, msgAndArgs ...interface{}) bool {
+func Fail(t TestingT, failureMessage string, msgAndArgs ...any) bool {
 	content := []labeledContent{
 		{"Error Trace", strings.Join(CallerInfo(), "\n\t\t\t")},
 		{"Error", failureMessage},
@@ -177,7 +177,7 @@ func Fail(t TestingT, failureMessage string, msgAndArgs ...interface{}) bool {
 // Nil asserts that the specified object is nil.
 //
 //    assert.Nil(t, err)
-func Nil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
+func Nil(t TestingT, object any, msgAndArgs ...any) bool {
 	if isNil(object) {
 		return true
 	}
@@ -187,7 +187,7 @@ func Nil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
 // NotNil asserts that the specified object is not nil.
 //
 //    assert.NotNil(t, err)
-func NotNil(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
+func NotNil(t TestingT, object any, msgAndArgs ...any) bool {
 	if !isNil(object) {
 		return true
 	}
@@ -250,7 +250,7 @@ func containsKind(kinds []reflect.Kind, kind reflect.Kind) bool {
 // True asserts that the specified value is true.
 //
 //    assert.True(t, myBool)
-func True(t TestingT, value bool, msgAndArgs ...interface{}) bool {
+func True(t TestingT, value bool, msgAndArgs ...any) bool {
 	if !value {
 		return Fail(t, "Should be true", msgAndArgs...)
 	}
@@ -265,7 +265,7 @@ func True(t TestingT, value bool, msgAndArgs ...interface{}) bool {
 //   if assert.NoError(t, err) {
 //	   assert.Equal(t, expectedObj, actualObj)
 //   }
-func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool {
+func NoError(t TestingT, err error, msgAndArgs ...any) bool {
 	if err != nil {
 		return Fail(t, fmt.Sprintf("Received unexpected error:\n%+v", err), msgAndArgs...)
 	}
@@ -279,7 +279,7 @@ func NoError(t TestingT, err error, msgAndArgs ...interface{}) bool {
 //   if assert.Error(t, err) {
 //	   assert.Equal(t, expectedError, err)
 //   }
-func Error(t TestingT, err error, msgAndArgs ...interface{}) bool {
+func Error(t TestingT, err error, msgAndArgs ...any) bool {
 	if err == nil {
 		return Fail(t, "An error is expected but got nil.", msgAndArgs...)
 	}
@@ -293,7 +293,7 @@ func Error(t TestingT, err error, msgAndArgs ...interface{}) bool {
 // Pointer variable equality is determined based on the equality of the
 // referenced values (as opposed to the memory addresses). Function equality
 // cannot be determined and will always fail.
-func Equal(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) bool {
+func Equal(t TestingT, expected, actual any, msgAndArgs ...any) bool {
 	if err := validateEqualArgs(expected, actual); err != nil {
 		return Fail(t, fmt.Sprintf("Invalid operation: %#v == %#v (%s)",
 			expected, actual, err), msgAndArgs...)
@@ -315,7 +315,7 @@ func Equal(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) 
 //
 // Pointer variable equality is determined based on the equality of the
 // referenced values (as opposed to the memory addresses).
-func NotEqual(t TestingT, expected, actual interface{}, msgAndArgs ...interface{}) bool {
+func NotEqual(t TestingT, expected, actual any, msgAndArgs ...any) bool {
 	if err := validateEqualArgs(expected, actual); err != nil {
 		return Fail(t, fmt.Sprintf("Invalid operation: %#v != %#v (%s)",
 			expected, actual, err), msgAndArgs...)
@@ -329,7 +329,7 @@ func NotEqual(t TestingT, expected, actual interface{}, msgAndArgs ...interface{
 
 // validateEqualArgs checks whether provided arguments can be safely used in the
 // Equal/NotEqual functions.
-func validateEqualArgs(expected, actual interface{}) error {
+func validateEqualArgs(expected, actual any) error {
 	if expected == nil && actual == nil {
 		return nil
 	}
@@ -340,7 +340,7 @@ func validateEqualArgs(expected, actual interface{}) error {
 	return nil
 }
 
-func isFunction(arg interface{}) bool {
+func isFunction(arg any) bool {
 	if arg == nil {
 		return false
 	}
@@ -350,7 +350,7 @@ func isFunction(arg interface{}) bool {
 // ObjectsAreEqual determines if two objects are considered equal.
 //
 // This function does no assertion of any kind.
-func ObjectsAreEqual(expected, actual interface{}) bool {
+func ObjectsAreEqual(expected, actual any) bool {
 	if expected == nil || actual == nil {
 		return expected == actual
 	}
@@ -370,7 +370,7 @@ func ObjectsAreEqual(expected, actual interface{}) bool {
 	return bytes.Equal(exp, act)
 }
 
-func typeAndKind(v interface{}) (reflect.Type, reflect.Kind) {
+func typeAndKind(v any) (reflect.Type, reflect.Kind) {
 	t := reflect.TypeOf(v)
 	k := t.Kind()
 
@@ -383,7 +383,7 @@ func typeAndKind(v interface{}) (reflect.Type, reflect.Kind) {
 
 // diff returns a diff of both values as long as both are of the same type and
 // are a struct, map, slice, array or string. Otherwise it returns an empty string.
-func diff(expected interface{}, actual interface{}) string {
+func diff(expected any, actual any) string {
 	if expected == nil || actual == nil {
 		return ""
 	}
@@ -449,7 +449,7 @@ var spewConfigStringerEnabled = spew.ConfigState{
 // If the values are not of like type, the returned strings will be prefixed
 // with the type name, and the value will be enclosed in parenthesis similar
 // to a type conversion in the Go grammar.
-func formatUnequalValues(expected, actual interface{}) (e string, a string) {
+func formatUnequalValues(expected, actual any) (e string, a string) {
 	if reflect.TypeOf(expected) != reflect.TypeOf(actual) {
 		return fmt.Sprintf("%T(%s)", expected, truncatingFormat(expected)),
 			fmt.Sprintf("%T(%s)", actual, truncatingFormat(actual))
@@ -465,7 +465,7 @@ func formatUnequalValues(expected, actual interface{}) (e string, a string) {
 //
 // This helps keep formatted error messages lines from exceeding the
 // bufio.MaxScanTokenSize max line length that the go testing framework imposes.
-func truncatingFormat(data interface{}) string {
+func truncatingFormat(data any) string {
 	value := fmt.Sprintf("%#v", data)
 	max := bufio.MaxScanTokenSize - 100 // Give us some space the type info too if needed.
 	if len(value) > max {
@@ -477,7 +477,7 @@ func truncatingFormat(data interface{}) string {
 // False asserts that the specified value is false.
 //
 //    assert.False(t, myBool)
-func False(t TestingT, value bool, msgAndArgs ...interface{}) bool {
+func False(t TestingT, value bool, msgAndArgs ...any) bool {
 	if value {
 		return Fail(t, "Should be false", msgAndArgs...)
 	}
@@ -487,7 +487,7 @@ func False(t TestingT, value bool, msgAndArgs ...interface{}) bool {
 }
 
 // isEmpty gets whether the specified object is considered empty or not.
-func isEmpty(object interface{}) bool {
+func isEmpty(object any) bool {
 
 	// get nil case out of the way
 	if object == nil {
@@ -518,7 +518,7 @@ func isEmpty(object interface{}) bool {
 // a slice or a channel with len == 0.
 //
 //  assert.Empty(t, obj)
-func Empty(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
+func Empty(t TestingT, object any, msgAndArgs ...any) bool {
 	pass := isEmpty(object)
 	if !pass {
 		Fail(t, fmt.Sprintf("Should be empty, but was %v", object), msgAndArgs...)
@@ -532,7 +532,7 @@ func Empty(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
 //  if assert.NotEmpty(t, obj) {
 //    assert.Equal(t, "two", obj[1])
 //  }
-func NotEmpty(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
+func NotEmpty(t TestingT, object any, msgAndArgs ...any) bool {
 	pass := !isEmpty(object)
 	if !pass {
 		Fail(t, fmt.Sprintf("Should NOT be empty, but was %v", object), msgAndArgs...)
@@ -542,7 +542,7 @@ func NotEmpty(t TestingT, object interface{}, msgAndArgs ...interface{}) bool {
 
 // getLen try to get length of object.
 // return (false, 0) if impossible.
-func getLen(x interface{}) (ok bool, length int) {
+func getLen(x any) (ok bool, length int) {
 	v := reflect.ValueOf(x)
 	defer func() {
 		if e := recover(); e != nil {
@@ -556,7 +556,7 @@ func getLen(x interface{}) (ok bool, length int) {
 // Len also fails if the object has a type that len() not accept.
 //
 //    assert.Len(t, mySlice, 3)
-func Len(t TestingT, object interface{}, length int, msgAndArgs ...interface{}) bool {
+func Len(t TestingT, object any, length int, msgAndArgs ...any) bool {
 	ok, l := getLen(object)
 	if !ok {
 		return Fail(t, fmt.Sprintf("\"%s\" could not be applied builtin len()", object), msgAndArgs...)

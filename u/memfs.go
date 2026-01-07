@@ -108,7 +108,7 @@ func (fi fileInfo) IsDir() bool {
 }
 
 // Sys returns nil (no system info available).
-func (fi fileInfo) Sys() interface{} {
+func (fi fileInfo) Sys() any {
 	return nil
 }
 

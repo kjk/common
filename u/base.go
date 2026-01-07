@@ -20,7 +20,7 @@ func Must2[T any](x T, err error) T {
 	return x
 }
 
-func PanicIf(cond bool, args ...interface{}) {
+func PanicIf(cond bool, args ...any) {
 	if !cond {
 		return
 	}
@@ -34,7 +34,7 @@ func PanicIf(cond bool, args ...interface{}) {
 	panic(s)
 }
 
-func PanicIfErr(err error, args ...interface{}) {
+func PanicIfErr(err error, args ...any) {
 	if err == nil {
 		return
 	}
