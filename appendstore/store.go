@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,12 +70,27 @@ func (s *Store) calcNonOverwritten() {
 	}
 }
 
+// Records returns all records
 func (s *Store) Records() []*Record {
 	// no direct access to records to ensure thread safety
 	s.mu.Lock()
 	res := append([]*Record{}, s.nonOverwritten...)
 	s.mu.Unlock()
 	return res
+}
+
+// RecordsIter returns an iterator over all records
+// Usage: for rec := range store.RecordsIter() { ... }
+func (s *Store) RecordsIter() iter.Seq[*Record] {
+	return func(yield func(*Record) bool) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, rec := range s.nonOverwritten {
+			if !yield(rec) {
+				return
+			}
+		}
+	}
 }
 
 // for debugging
@@ -110,7 +126,7 @@ func (s *Store) reopenFiles() error {
 	if s.dataFile == nil {
 		off, err := openFileSeekToEnd(s.dataFilePath, &s.dataFile)
 		if err != nil {
-			s.CloseFiles()
+			s.closeFiles()
 			return err
 		}
 		s.currDataOffset = off
@@ -118,7 +134,14 @@ func (s *Store) reopenFiles() error {
 	return nil
 }
 
+// CloseFiles closes the index and data files.
 func (s *Store) CloseFiles() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closeFiles()
+}
+
+func (s *Store) closeFiles() error {
 	var err1, err2 error
 	if s.indexFile != nil {
 		err1 = s.indexFile.Close()
@@ -265,6 +288,7 @@ func (s *Store) appendToDataFile(data []byte, additionalBytes int) error {
 	return nil
 }
 
+// AppendRecord appends a new record to the store.
 func (s *Store) AppendRecord(kind string, meta string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -272,6 +296,11 @@ func (s *Store) AppendRecord(kind string, meta string, data []byte) error {
 	return s.appendRecord(kind, meta, data, 0, 0)
 }
 
+// AppendRecordWithTimestamp appends a new record to the store with the specified timestamp in milliseconds.
+// If timestampMs is 0, the current time will be used.
+// Note: timestampMs should be in UTC (time.Now().UTC().UnixMilli())
+// Timestamps is meant to record the creation time of the data being stored.
+// Explicitly setting timestamps can be useful when importing data from other sources
 func (s *Store) AppendRecordWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -283,8 +312,6 @@ func (s *Store) overwriteRecord(kind string, meta string, data []byte, timestamp
 	if len(data) == 0 {
 		return s.AppendRecordWithTimestamp(kind, meta, nil, timestampMs)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// find a record that we can overwrite
 	recToOverwriteIdx := -1
@@ -329,15 +356,32 @@ func (s *Store) overwriteRecord(kind string, meta string, data []byte, timestamp
 	return nil
 }
 
+// OverwriteRecordWithTimestamp overwrites an existing record with the same kind and meta if possible.
+// If no such record exists or the new data is larger than the existing record's allocated size,
+// a new record is appended.
+// Timestamps is meant to record the creation time of the data being stored.
+// Explicitly setting timestamps can be useful when importing data from other sources
 func (s *Store) OverwriteRecordWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.overwriteRecord(kind, meta, data, timestampMs)
 }
 
+// OverwriteRecord overwrites an existing record with the same kind and meta if possible.
+// If no such record exists or the new data is larger than the existing record's allocated size,
+// a new record is appended.
+// This is meant for scenarios where data with the same kind and meta is updated frequently
+// and you don't care about preserving previous versions.
 func (s *Store) OverwriteRecord(kind string, meta string, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.overwriteRecord(kind, meta, data, 0)
 }
 
-// perf: allow re-using Record
+// ParseIndexLine parses a single line from the index file into a Record.
+// rec is passed in to allow re-using Record for perf. can be nil
 func ParseIndexLine(line string, rec *Record) error {
 	parts := strings.SplitN(line, " ", 5)
 	if len(parts) < 4 {
@@ -386,6 +430,25 @@ func ParseIndexLine(line string, rec *Record) error {
 	return nil
 }
 
+// ParseIndexFromFile parses index lines from a file into a slice of Records.
+func ParseIndexFromFile(path string) ([]*Record, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	return ParseIndexFromScanner(scanner)
+}
+
+// ParseIndexFromData parses multiple index lines from a byte slice into a slice of Records.
+func ParseIndexFromData(d []byte) ([]*Record, error) {
+	scanner := bufio.NewScanner(strings.NewReader(string(d)))
+	return ParseIndexFromScanner(scanner)
+}
+
+// ParseIndexFromScanner parses multiple index lines from a bufio.Scanner into a slice of Records.
+// It's meant to efficiently parse index file.
 func ParseIndexFromScanner(scanner *bufio.Scanner) ([]*Record, error) {
 	var records []*Record
 	for scanner.Scan() {
@@ -404,11 +467,6 @@ func ParseIndexFromScanner(scanner *bufio.Scanner) ([]*Record, error) {
 		return nil, fmt.Errorf("error reading from scanner: %w", err)
 	}
 	return records, nil
-}
-
-func ParseIndexFromData(d []byte) ([]*Record, error) {
-	scanner := bufio.NewScanner(strings.NewReader(string(d)))
-	return ParseIndexFromScanner(scanner)
 }
 
 // readFilePart efficiently reads a specific portion of a file
@@ -438,6 +496,7 @@ func readFilePart(path string, offset int64, len int64) ([]byte, error) {
 	return buf, nil
 }
 
+// ReadRecord reads the data for a given record.
 func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	if r.Offset < 0 || r.Size == 0 {
 		return nil, nil
@@ -450,15 +509,10 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 }
 
 func readAllRecords(path string) ([]*Record, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	return ParseIndexFromScanner(scanner)
+	return ParseIndexFromFile(path)
 }
 
+// OpenStore initializes the Store by loading existing records from the index file.
 func OpenStore(s *Store) error {
 	if s.DataDir == "" {
 		return fmt.Errorf("data directory is not set. For current directory, use '.'")
