@@ -42,8 +42,13 @@ func TestRoundtrip(t *testing.T) {
 func TestInvalidMarshal(t *testing.T) {
 	tests := [][]string{
 		{"k1", "v1", "k2"}, // odd number of key-value pairs
-		{"k ", "v"},        // key with space
-		{"k\n", "v"},       // key with newline
+		// keys cannot contain space, tab, newline, or ':'
+		{"k ", "v"},
+		{"k\n", "v"},
+		{"k\t", "v"},
+		{"k:", "v"},
+		{"k:oh", "v"},
+		{"k\"", "v"},
 	}
 	for _, test := range tests {
 		got, err := KeyValueMarshal(test...)

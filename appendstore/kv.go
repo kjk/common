@@ -14,8 +14,8 @@ func KeyValueMarshal(keyValues ...string) (string, error) {
 	var buf bytes.Buffer
 	for i := 0; i < len(keyValues); i += 2 {
 		key := keyValues[i]
-		if strings.Contains(key, " ") || strings.Contains(key, "\n") {
-			return "", fmt.Errorf("key '%s' contains space or newline", key)
+		if strings.ContainsAny(key, ": \n\r\t\"") {
+			return "", fmt.Errorf("key '%s' contains space, tab, newline, or ':'", key)
 		}
 		if i > 0 {
 			buf.WriteByte(' ')
@@ -23,28 +23,32 @@ func KeyValueMarshal(keyValues ...string) (string, error) {
 		buf.WriteString(key)
 		buf.WriteByte(':')
 		v := keyValues[i+1]
-		if strings.Contains(v, " ") || strings.Contains(v, "\n") || strings.HasPrefix(v, "\"") {
-			// needs escaping
-			buf.WriteByte('"')
-			for _, r := range v {
-				if r == '"' || r == '\\' || r == '\n' {
-					buf.WriteByte('\\')
-					switch r {
-					case '"', '\\':
-						buf.WriteRune(r)
-					case '\n':
-						buf.WriteByte('n')
-					default:
-						panic("invalid state")
-					}
-				} else {
-					buf.WriteRune(r)
-				}
-			}
-			buf.WriteByte('"')
-		} else {
+		if !strings.ContainsAny(v, " \n\r\t\"") {
 			buf.WriteString(v)
+			continue
 		}
+		// needs escaping
+		buf.WriteByte('"')
+		for _, r := range v {
+			if r == '"' || r == '\\' || r == '\n' || r == '\r' || r == '\t' {
+				buf.WriteByte('\\')
+				switch r {
+				case '"', '\\':
+					buf.WriteRune(r)
+				case '\n':
+					buf.WriteByte('n')
+				case '\t':
+					buf.WriteByte('t')
+				case '\r':
+					buf.WriteByte('r')
+				default:
+					panic("invalid state")
+				}
+			} else {
+				buf.WriteRune(r)
+			}
+		}
+		buf.WriteByte('"')
 	}
 	return buf.String(), nil
 }
@@ -72,6 +76,7 @@ func KeyValueUnmarshal(str string) ([]string, error) {
 			s = s[1:]
 
 			var buf bytes.Buffer
+			buf.Grow(len(s))
 			for i := 0; i < len(s); i++ {
 				c := s[i]
 				switch c {
@@ -85,6 +90,10 @@ func KeyValueUnmarshal(str string) ([]string, error) {
 						buf.WriteByte(s[i])
 					case 'n':
 						buf.WriteByte('\n')
+					case 'r':
+						buf.WriteByte('\r')
+					case 't':
+						buf.WriteByte('\t')
 					default:
 						return nil, fmt.Errorf("unknown escape sequence '\\%c' in '%s'", s[i], str)
 					}
