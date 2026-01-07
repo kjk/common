@@ -453,7 +453,7 @@ func TestAppendRecordFile(t *testing.T) {
 	filePath := filepath.Join(store.DataDir, fileName)
 	fileData, err := os.ReadFile(filePath)
 	assert(t, err == nil, fmt.Sprintf("Failed to read file from disk: %v", err))
-	assert(t, bytes.Equal(fileData, data), fmt.Sprintf("File data mismatch"))
+	assert(t, bytes.Equal(fileData, data), "File data mismatch")
 
 	// Test error: fileName with space
 	err = store.AppendRecordFile("test", "meta", []byte("data"), "file name.dat")
@@ -498,13 +498,13 @@ func TestAppendRecordFile(t *testing.T) {
 			assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s after reopen, got %s", fileName, rec.FileName))
 			readData, err := store2.ReadRecord(rec)
 			assert(t, err == nil, fmt.Sprintf("Failed to read file record after reopen: %v", err))
-			assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch after reopen"))
+			assert(t, bytes.Equal(readData, data), "Data mismatch after reopen")
 		}
 		if rec.Kind == "regular" {
 			assert(t, rec.FileName == "", "Expected empty fileName for regular record")
 			readData, err := store2.ReadRecord(rec)
 			assert(t, err == nil, fmt.Sprintf("Failed to read regular record after reopen: %v", err))
-			assert(t, bytes.Equal(readData, regularData), fmt.Sprintf("Regular data mismatch"))
+			assert(t, bytes.Equal(readData, regularData), "Regular data mismatch")
 		}
 	}
 }
@@ -527,7 +527,7 @@ func TestAppendRecordFileWithTimestamp(t *testing.T) {
 
 	readData, err := store.ReadRecord(rec)
 	assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
-	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch"))
+	assert(t, bytes.Equal(readData, data), "Data mismatch")
 
 	// Reopen and verify timestamp persistence
 	store.CloseFiles()
