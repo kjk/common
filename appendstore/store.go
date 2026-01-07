@@ -25,10 +25,10 @@ type Record struct {
 	Kind string
 	// optional metadata, can't contain newlines
 	Meta string
-	// true if data is stored inline in the index file instead of the data file
-	DataInline bool
 	// if not empty, data is stored in this file (relative to DataDir) instead of the data file
 	FileName string
+	// true if data is stored inline in the index file instead of the data file
+	DataInline bool
 }
 
 type Store struct {
