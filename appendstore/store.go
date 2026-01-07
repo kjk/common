@@ -427,13 +427,37 @@ func (s *Store) appendRecordFile(kind string, meta string, data []byte, fileName
 	return nil
 }
 
+// splitFields splits a string into up to len(parts) space-separated fields.
+// The last field captures the remainder of the string.
+// Returns the number of fields found.
+func splitFields(s string, parts *[5]string) int {
+	n := 0
+	start := 0
+	for i := 0; i < len(s) && n < len(parts)-1; i++ {
+		if s[i] == ' ' {
+			if i > start {
+				parts[n] = s[start:i]
+				n++
+			}
+			start = i + 1
+		}
+	}
+	// Last field gets the remainder
+	if start < len(s) {
+		parts[n] = s[start:]
+		n++
+	}
+	return n
+}
+
 // ParseIndexLine parses a single line from the index file into a Record.
 // rec is passed in to allow re-using Record for perf. can be nil
 // For inline records (offset="_"), the caller must set rec.Offset to the
 // actual byte position in the index file where the data starts.
 func ParseIndexLine(line string, rec *Record) error {
-	parts := strings.SplitN(line, " ", 5)
-	if len(parts) < 4 {
+	var parts [5]string
+	n := splitFields(line, &parts)
+	if n < 4 {
 		return fmt.Errorf("invalid index line: %s", line)
 	}
 
@@ -476,7 +500,7 @@ func ParseIndexLine(line string, rec *Record) error {
 
 	rec.Kind = parts[3]
 	rec.Meta = "" // possibly reusing rec so needs to reset
-	if len(parts) > 4 {
+	if n > 4 {
 		rec.Meta = parts[4]
 	}
 	return nil
