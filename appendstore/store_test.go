@@ -260,3 +260,167 @@ func assert(t *testing.T, cond bool, msg string) {
 		panic(msg)
 	}
 }
+
+func TestAppendRecordInline(t *testing.T) {
+	store := createStore(t, "inline_")
+
+	// Test basic inline record
+	kind := "config"
+	meta := "settings"
+	data := []byte(`{"theme":"dark","fontSize":14}`)
+	err := store.AppendRecordInline(kind, meta, data)
+	assert(t, err == nil, fmt.Sprintf("Failed to append inline record: %v", err))
+
+	rec := getLastRecord(store)
+	assert(t, rec.Kind == kind, fmt.Sprintf("Expected kind %s, got %s", kind, rec.Kind))
+	assert(t, rec.Meta == meta, fmt.Sprintf("Expected meta %s, got %s", meta, rec.Meta))
+	assert(t, rec.Size == int64(len(data)), fmt.Sprintf("Expected size %d, got %d", len(data), rec.Size))
+	assert(t, rec.DataInline == true, "Expected DataInline to be true")
+
+	// Read back the data
+	readData, err := store.ReadRecord(rec)
+	assert(t, err == nil, fmt.Sprintf("Failed to read inline record: %v", err))
+	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch, expected %s, got %s", data, readData))
+
+	// Test with empty data
+	err = store.AppendRecordInline("empty", "test", nil)
+	assert(t, err == nil, fmt.Sprintf("Failed to append empty inline record: %v", err))
+	recEmpty := getLastRecord(store)
+	assert(t, recEmpty.Size == 0, fmt.Sprintf("Expected size 0, got %d", recEmpty.Size))
+	assert(t, recEmpty.DataInline == true, "Expected DataInline to be true for empty record")
+
+	// Test with validation errors
+	err = store.AppendRecordInline("", meta, data)
+	assert(t, err != nil, "Expected error for empty kind")
+	err = store.AppendRecordInline("test kind", meta, data)
+	assert(t, err != nil, "Expected error for kind with spaces")
+	err = store.AppendRecordInline(kind, "meta\nwith\nnewlines", data)
+	assert(t, err != nil, "Expected error for meta with newlines")
+
+	// Mix inline and regular records
+	regularData := []byte("regular record data")
+	err = store.AppendRecord("regular", "rec1", regularData)
+	assert(t, err == nil, fmt.Sprintf("Failed to append regular record: %v", err))
+	recRegular := getLastRecord(store)
+	assert(t, recRegular.DataInline == false, "Expected DataInline to be false for regular record")
+
+	inlineData2 := []byte("another inline")
+	err = store.AppendRecordInline("inline2", "rec2", inlineData2)
+	assert(t, err == nil, fmt.Sprintf("Failed to append second inline record: %v", err))
+
+	// Verify all records can be read correctly (config, empty, regular, inline2)
+	recs := store.Records()
+	assert(t, len(recs) == 4, fmt.Sprintf("Expected 4 records, got %d", len(recs)))
+
+	// Reopen store and verify persistence
+	err = store.CloseFiles()
+	assert(t, err == nil, fmt.Sprintf("Failed to close store: %v", err))
+
+	store2 := openStore(t, "inline_")
+	recs2 := store2.Records()
+	assert(t, len(recs2) == 4, fmt.Sprintf("Expected 4 records after reopen, got %d", len(recs2)))
+
+	// Verify inline record data after reopen
+	for _, rec := range recs2 {
+		if rec.Kind == "config" {
+			assert(t, rec.DataInline == true, "Expected DataInline to be true after reopen")
+			readData, err := store2.ReadRecord(rec)
+			assert(t, err == nil, fmt.Sprintf("Failed to read inline record after reopen: %v", err))
+			assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch after reopen, expected %s, got %s", data, readData))
+		}
+		if rec.Kind == "regular" {
+			assert(t, rec.DataInline == false, "Expected DataInline to be false for regular record after reopen")
+			readData, err := store2.ReadRecord(rec)
+			assert(t, err == nil, fmt.Sprintf("Failed to read regular record after reopen: %v", err))
+			assert(t, bytes.Equal(readData, regularData), fmt.Sprintf("Regular data mismatch, expected %s, got %s", regularData, readData))
+		}
+	}
+}
+
+func TestAppendRecordInlineWithTimestamp(t *testing.T) {
+	store := createStore(t, "inline_ts_")
+
+	kind := "log"
+	meta := "entry1"
+	data := []byte("log message here")
+	customTs := int64(1704067200000) // 2024-01-01 00:00:00 UTC
+
+	err := store.AppendRecordInlineWithTimestamp(kind, meta, data, customTs)
+	assert(t, err == nil, fmt.Sprintf("Failed to append inline record with timestamp: %v", err))
+
+	rec := getLastRecord(store)
+	assert(t, rec.TimestampMs == customTs, fmt.Sprintf("Expected timestamp %d, got %d", customTs, rec.TimestampMs))
+	assert(t, rec.DataInline == true, "Expected DataInline to be true")
+	assert(t, rec.Kind == kind, fmt.Sprintf("Expected kind %s, got %s", kind, rec.Kind))
+
+	readData, err := store.ReadRecord(rec)
+	assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
+	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch, expected %s, got %s", data, readData))
+
+	// Test with zero timestamp (should use current time)
+	err = store.AppendRecordInlineWithTimestamp("log", "entry2", []byte("another log"), 0)
+	assert(t, err == nil, fmt.Sprintf("Failed to append inline record with zero timestamp: %v", err))
+	rec2 := getLastRecord(store)
+	assert(t, rec2.TimestampMs > 0, "Expected non-zero timestamp")
+	assert(t, rec2.TimestampMs <= time.Now().UTC().UnixMilli(), "Expected timestamp not in the future")
+
+	// Reopen and verify timestamp persistence
+	store.CloseFiles()
+	store2 := openStore(t, "inline_ts_")
+	recs := store2.Records()
+	assert(t, len(recs) == 2, fmt.Sprintf("Expected 2 records, got %d", len(recs)))
+	assert(t, recs[0].TimestampMs == customTs, fmt.Sprintf("Expected custom timestamp %d after reopen, got %d", customTs, recs[0].TimestampMs))
+}
+
+func TestInlineRecordMultiple(t *testing.T) {
+	store := createStore(t, "inline_multi_")
+
+	// Add many inline records to test parsing robustness
+	testData := []struct {
+		kind string
+		meta string
+		data []byte
+	}{
+		{"type1", "meta1", []byte("data one")},
+		{"type2", "meta2", []byte("data two with more content")},
+		{"type3", "", []byte("no meta")},
+		{"type4", "meta4", nil},
+		{"type5", "meta with spaces", []byte("short")},
+		{"type6", "meta6", []byte("a longer piece of data that spans more bytes")},
+	}
+
+	for _, td := range testData {
+		err := store.AppendRecordInline(td.kind, td.meta, td.data)
+		assert(t, err == nil, fmt.Sprintf("Failed to append inline record %s: %v", td.kind, err))
+	}
+
+	// Verify all records
+	recs := store.Records()
+	assert(t, len(recs) == len(testData), fmt.Sprintf("Expected %d records, got %d", len(testData), len(recs)))
+
+	for i, td := range testData {
+		rec := recs[i]
+		assert(t, rec.Kind == td.kind, fmt.Sprintf("Record %d: kind mismatch", i))
+		assert(t, rec.Meta == td.meta, fmt.Sprintf("Record %d: meta mismatch", i))
+		assert(t, rec.DataInline == true, fmt.Sprintf("Record %d: expected DataInline true", i))
+		readData, err := store.ReadRecord(rec)
+		assert(t, err == nil, fmt.Sprintf("Record %d: failed to read: %v", i, err))
+		assert(t, bytes.Equal(readData, td.data), fmt.Sprintf("Record %d: data mismatch", i))
+	}
+
+	// Reopen and verify
+	store.CloseFiles()
+	store2 := openStore(t, "inline_multi_")
+	recs2 := store2.Records()
+	assert(t, len(recs2) == len(testData), fmt.Sprintf("Expected %d records after reopen, got %d", len(testData), len(recs2)))
+
+	for i, td := range testData {
+		rec := recs2[i]
+		assert(t, rec.Kind == td.kind, fmt.Sprintf("After reopen, record %d: kind mismatch", i))
+		assert(t, rec.Meta == td.meta, fmt.Sprintf("After reopen, record %d: meta mismatch", i))
+		assert(t, rec.DataInline == true, fmt.Sprintf("After reopen, record %d: expected DataInline true", i))
+		readData, err := store2.ReadRecord(rec)
+		assert(t, err == nil, fmt.Sprintf("After reopen, record %d: failed to read: %v", i, err))
+		assert(t, bytes.Equal(readData, td.data), fmt.Sprintf("After reopen, record %d: data mismatch", i))
+	}
+}
