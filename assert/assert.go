@@ -37,7 +37,7 @@ func isNil(object any) bool {
 		[]reflect.Kind{
 			reflect.Chan, reflect.Func,
 			reflect.Interface, reflect.Map,
-			reflect.Ptr, reflect.Slice},
+			reflect.Pointer, reflect.Slice},
 		kind)
 
 	if isNilableKind && value.IsNil() {
@@ -176,7 +176,7 @@ func Fail(t TestingT, failureMessage string, msgAndArgs ...any) bool {
 
 // Nil asserts that the specified object is nil.
 //
-//    assert.Nil(t, err)
+//	assert.Nil(t, err)
 func Nil(t TestingT, object any, msgAndArgs ...any) bool {
 	if isNil(object) {
 		return true
@@ -186,7 +186,7 @@ func Nil(t TestingT, object any, msgAndArgs ...any) bool {
 
 // NotNil asserts that the specified object is not nil.
 //
-//    assert.NotNil(t, err)
+//	assert.NotNil(t, err)
 func NotNil(t TestingT, object any, msgAndArgs ...any) bool {
 	if !isNil(object) {
 		return true
@@ -196,7 +196,7 @@ func NotNil(t TestingT, object any, msgAndArgs ...any) bool {
 
 // labeledOutput returns a string consisting of the provided labeledContent. Each labeled output is appended in the following manner:
 //
-//   \t{{label}}:{{align_spaces}}\t{{content}}\n
+//	\t{{label}}:{{align_spaces}}\t{{content}}\n
 //
 // The initial carriage return is required to undo/erase any padding added by testing.T.Errorf. The "\t{{label}}:" is for the label.
 // If a label is shorter than the longest label provided, padding spaces are added to make all the labels match in length. Once this
@@ -238,7 +238,7 @@ func indentMessageLines(message string, longestLabelLen int) string {
 
 // containsKind checks if a specified kind in the slice of kinds.
 func containsKind(kinds []reflect.Kind, kind reflect.Kind) bool {
-	for i := 0; i < len(kinds); i++ {
+	for i := range kinds {
 		if kind == kinds[i] {
 			return true
 		}
@@ -249,7 +249,7 @@ func containsKind(kinds []reflect.Kind, kind reflect.Kind) bool {
 
 // True asserts that the specified value is true.
 //
-//    assert.True(t, myBool)
+//	assert.True(t, myBool)
 func True(t TestingT, value bool, msgAndArgs ...any) bool {
 	if !value {
 		return Fail(t, "Should be true", msgAndArgs...)
@@ -261,10 +261,10 @@ func True(t TestingT, value bool, msgAndArgs ...any) bool {
 
 // NoError asserts that a function returned no error (i.e. `nil`).
 //
-//   actualObj, err := SomeFunction()
-//   if assert.NoError(t, err) {
-//	   assert.Equal(t, expectedObj, actualObj)
-//   }
+//	  actualObj, err := SomeFunction()
+//	  if assert.NoError(t, err) {
+//		   assert.Equal(t, expectedObj, actualObj)
+//	  }
 func NoError(t TestingT, err error, msgAndArgs ...any) bool {
 	if err != nil {
 		return Fail(t, fmt.Sprintf("Received unexpected error:\n%+v", err), msgAndArgs...)
@@ -275,10 +275,10 @@ func NoError(t TestingT, err error, msgAndArgs ...any) bool {
 
 // Error asserts that a function returned an error (i.e. not `nil`).
 //
-//   actualObj, err := SomeFunction()
-//   if assert.Error(t, err) {
-//	   assert.Equal(t, expectedError, err)
-//   }
+//	  actualObj, err := SomeFunction()
+//	  if assert.Error(t, err) {
+//		   assert.Equal(t, expectedError, err)
+//	  }
 func Error(t TestingT, err error, msgAndArgs ...any) bool {
 	if err == nil {
 		return Fail(t, "An error is expected but got nil.", msgAndArgs...)
@@ -288,7 +288,7 @@ func Error(t TestingT, err error, msgAndArgs ...any) bool {
 
 // Equal asserts that two objects are equal.
 //
-//    assert.Equal(t, 123, 123)
+//	assert.Equal(t, 123, 123)
 //
 // Pointer variable equality is determined based on the equality of the
 // referenced values (as opposed to the memory addresses). Function equality
@@ -311,7 +311,7 @@ func Equal(t TestingT, expected, actual any, msgAndArgs ...any) bool {
 
 // NotEqual asserts that the specified values are NOT equal.
 //
-//    assert.NotEqual(t, obj1, obj2)
+//	assert.NotEqual(t, obj1, obj2)
 //
 // Pointer variable equality is determined based on the equality of the
 // referenced values (as opposed to the memory addresses).
@@ -374,7 +374,7 @@ func typeAndKind(v any) (reflect.Type, reflect.Kind) {
 	t := reflect.TypeOf(v)
 	k := t.Kind()
 
-	if k == reflect.Ptr {
+	if k == reflect.Pointer {
 		t = t.Elem()
 		k = t.Kind()
 	}
@@ -402,10 +402,10 @@ func diff(expected any, actual any) string {
 	var e, a string
 
 	switch et {
-	case reflect.TypeOf(""):
+	case reflect.TypeFor[string]():
 		e = reflect.ValueOf(expected).String()
 		a = reflect.ValueOf(actual).String()
-	case reflect.TypeOf(time.Time{}):
+	case reflect.TypeFor[time.Time]():
 		e = spewConfigStringerEnabled.Sdump(expected)
 		a = spewConfigStringerEnabled.Sdump(actual)
 	default:
@@ -476,7 +476,7 @@ func truncatingFormat(data any) string {
 
 // False asserts that the specified value is false.
 //
-//    assert.False(t, myBool)
+//	assert.False(t, myBool)
 func False(t TestingT, value bool, msgAndArgs ...any) bool {
 	if value {
 		return Fail(t, "Should be false", msgAndArgs...)
@@ -501,7 +501,7 @@ func isEmpty(object any) bool {
 	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice:
 		return objValue.Len() == 0
 		// pointers are empty if nil or if the value they point to is empty
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if objValue.IsNil() {
 			return true
 		}
@@ -517,7 +517,7 @@ func isEmpty(object any) bool {
 // Empty asserts that the specified object is empty.  I.e. nil, "", false, 0 or either
 // a slice or a channel with len == 0.
 //
-//  assert.Empty(t, obj)
+//	assert.Empty(t, obj)
 func Empty(t TestingT, object any, msgAndArgs ...any) bool {
 	pass := isEmpty(object)
 	if !pass {
@@ -529,9 +529,9 @@ func Empty(t TestingT, object any, msgAndArgs ...any) bool {
 // NotEmpty asserts that the specified object is NOT empty.  I.e. not nil, "", false, 0 or either
 // a slice or a channel with len == 0.
 //
-//  if assert.NotEmpty(t, obj) {
-//    assert.Equal(t, "two", obj[1])
-//  }
+//	if assert.NotEmpty(t, obj) {
+//	  assert.Equal(t, "two", obj[1])
+//	}
 func NotEmpty(t TestingT, object any, msgAndArgs ...any) bool {
 	pass := !isEmpty(object)
 	if !pass {
@@ -555,7 +555,7 @@ func getLen(x any) (ok bool, length int) {
 // Len asserts that the specified object has specific length.
 // Len also fails if the object has a type that len() not accept.
 //
-//    assert.Len(t, mySlice, 3)
+//	assert.Len(t, mySlice, 3)
 func Len(t TestingT, object any, length int, msgAndArgs ...any) bool {
 	ok, l := getLen(object)
 	if !ok {
