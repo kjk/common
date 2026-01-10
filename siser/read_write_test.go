@@ -356,7 +356,7 @@ func testMany(t *testing.T, name string) {
 	var positions []int64
 	var currPos int64
 	nRecs := 8
-	for i := 0; i < nRecs; i++ {
+	for i := range nRecs {
 		rec.Reset()
 		rec.Name = name
 		rec.Timestamp = now
@@ -405,22 +405,6 @@ func testMany(t *testing.T, name string) {
 func TestWritePanics(t *testing.T) {
 	rec := &Record{}
 	assert.Error(t, rec.Write("foo"))
-}
-
-func TestIntStrLen(t *testing.T) {
-	numbers := []int{-1, 0, 1}
-	n1 := 1
-	n2 := -1
-	for i := 0; i < 10; i++ {
-		n1 = n1*10 + i + 1
-		n2 = n2*10 - i - 1
-		numbers = append(numbers, n1, n2)
-	}
-	for _, n := range numbers {
-		got := intStrLen(n)
-		exp := len(strconv.Itoa(n))
-		assert.Equal(t, exp, got)
-	}
 }
 
 func TestCrashes(t *testing.T) {

@@ -130,6 +130,17 @@ func nonEmptyEndsWithNewline(s string) bool {
 	return n == 0 || s[n-1] == '\n'
 }
 
+func serializableOnLine(s string) bool {
+	n := len(s)
+	for i := 0; i < n; i++ {
+		b := s[i]
+		if b < 32 || b > 127 {
+			return false
+		}
+	}
+	return true
+}
+
 // return true if value needs to be serialized in long,
 // size-prefixed format
 func needsLongFormat(s string) bool {

@@ -38,33 +38,6 @@ func panicIf(cond bool, args ...any) {
 	panicWithMsg("fatalIf: condition failed", args...)
 }
 
-// intStrLen calculates how long n would be when converted to a string
-// i.e. equivalent of len(strconv.Itoa(n)) but faster
-// Note: not used
-func intStrLen(n int) int {
-	l := 1 // count the last digit here
-	if n < 0 {
-		n = -n
-		l = 2
-	}
-	for n > 9 {
-		l++
-		n = n / 10
-	}
-	return l
-}
-
-func serializableOnLine(s string) bool {
-	n := len(s)
-	for i := 0; i < n; i++ {
-		b := s[i]
-		if b < 32 || b > 127 {
-			return false
-		}
-	}
-	return true
-}
-
 // TimeToUnixMillisecond converts t into Unix epoch time in milliseconds.
 // That's because seconds is not enough precision and nanoseconds is too much.
 func TimeToUnixMillisecond(t time.Time) int64 {
