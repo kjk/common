@@ -597,6 +597,7 @@ func TestAppendRecordFileWithTimestamp(t *testing.T) {
 	a(t, err == nil, "Failed to read record: %v", err)
 	a(t, bytes.Equal(readMeta, meta), "metadata mismatch")
 	fileData, err := store.ReadFile(rec)
+	a(t, err == nil, "store.ReadFile() failed with %v", err)
 	a(t, bytes.Equal(fileData, data), "Data mismatch")
 
 	// Reopen and verify timestamp persistence
