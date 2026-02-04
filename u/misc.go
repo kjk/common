@@ -3,7 +3,6 @@ package u
 import (
 	"context"
 	"fmt"
-	"log"
 	"mime"
 	"os"
 	"os/exec"
@@ -16,7 +15,7 @@ import (
 )
 
 // from https://gist.github.com/hyg/9c4afcd91fe24316cbf0
-func OpenBrowser(url string) {
+func OpenBrowser(url string) error {
 	var err error
 
 	switch runtime.GOOS {
@@ -29,9 +28,7 @@ func OpenBrowser(url string) {
 	default:
 		err = fmt.Errorf("unsupported platform")
 	}
-	if err != nil {
-		log.Fatal(err)
-	}
+	return err
 }
 
 // FormatSize formats a number in a human-readable form e.g. 1.24 kB
@@ -229,4 +226,17 @@ func WaitForSigIntOrKill() {
 	sctx, stop := signal.NotifyContext(ctx, os.Interrupt /*SIGINT*/, os.Kill /* SIGKILL */, syscall.SIGTERM)
 	defer stop()
 	<-sctx.Done()
+}
+
+// get date and hash of current git checkin
+func GetGitHashDateMust() (string, string) {
+	// git log --pretty=format:"%h %ad %s" --date=short -1
+	cmd := exec.Command("git", "log", "-1", `--pretty=format:%h %ad %s`, "--date=short")
+	out, err := cmd.Output()
+	PanicIf(err != nil, "git log failed")
+	s := strings.TrimSpace(string(out))
+	//logf("exec out: '%s'\n", s)
+	parts := strings.SplitN(s, " ", 3)
+	PanicIf(len(parts) != 3, "expected 3 parts in '%s'", s)
+	return parts[0], parts[1] // hashShort, date
 }

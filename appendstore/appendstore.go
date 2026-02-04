@@ -266,39 +266,39 @@ func (s *Store) appendToDataFile(data []byte) error {
 	return nil
 }
 
-// AppendRecord appends a new record to the store.
-func (s *Store) AppendRecord(kind string, meta string, data []byte) error {
+// AppendData appends a new record to the store.
+func (s *Store) AppendData(kind string, meta string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.appendRecord(kind, meta, data, 0)
 }
 
-// AppendRecordWithTimestamp appends a new record to the store with the specified timestamp in milliseconds.
+// AppendDataWithTimestamp appends a new record to the store with the specified timestamp in milliseconds.
 // If timestampMs is 0, the current time will be used.
 // Note: timestampMs should be in UTC (time.Now().UTC().UnixMilli())
 // Timestamps is meant to record the creation time of the data being stored.
 // Explicitly setting timestamps can be useful when importing data from other sources
-func (s *Store) AppendRecordWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
+func (s *Store) AppendDataWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.appendRecord(kind, meta, data, timestampMs)
 }
 
-// AppendRecordInline appends a new record with data stored inline in the index file.
+// AppendDataInline appends a new record with data stored inline in the index file.
 // This is useful for small data that doesn't warrant a separate entry in the data file.
 // The data is stored immediately after the index line in the index file.
-func (s *Store) AppendRecordInline(kind string, meta string, data []byte) error {
+func (s *Store) AppendDataInline(kind string, meta string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.appendRecordInline(kind, meta, data, 0)
 }
 
-// AppendRecordInlineWithTimestamp appends a new record with data stored inline in the index file
+// AppendDataInlineWithTimestamp appends a new record with data stored inline in the index file
 // with the specified timestamp in milliseconds.
-func (s *Store) AppendRecordInlineWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
+func (s *Store) AppendDataInlineWithTimestamp(kind string, meta string, data []byte, timestampMs int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -367,19 +367,19 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 	return nil
 }
 
-// AppendRecordFile appends a new record with data stored in a separate file.
+// AppendFile appends a new record with data stored in a separate file.
 // The file is created in DataDir with the given fileName.
 // Returns error if fileName contains a space.
-func (s *Store) AppendRecordFile(kind string, meta string, data []byte, fileName string) error {
+func (s *Store) AppendFile(kind string, meta string, data []byte, fileName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.appendRecordFile(kind, meta, data, fileName, 0)
 }
 
-// AppendRecordFileWithTimestamp appends a new record with data stored in a separate file
+// AppendFileWithTimestamp appends a new record with data stored in a separate file
 // with the specified timestamp in milliseconds.
-func (s *Store) AppendRecordFileWithTimestamp(kind string, meta string, data []byte, fileName string, timestampMs int64) error {
+func (s *Store) AppendFileWithTimestamp(kind string, meta string, data []byte, fileName string, timestampMs int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

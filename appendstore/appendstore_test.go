@@ -76,23 +76,16 @@ func getLastRecord(store *Store) *Record {
 
 func TestStoreWriteAndRead(t *testing.T) {
 	store := createStore(t, "test_")
-	// Test with newline in metadata
-	err := store.AppendRecord("test_kind", "meta\nwith\nnewlines", []byte("test data"))
-	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject metadata with newlines, got error: %v", err))
-	// Test kind with spaces
-	err = store.AppendRecord("test kind", "meta", []byte("test data"))
-	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject kind with spaces, got error: %v", err))
-	// Test empty kind
-	err = store.AppendRecord("", "meta", []byte("test data"))
-	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject empty kind, got error: %v", err))
-	// Test kind with newlines
-	err = store.AppendRecord("test\nkind", "meta", []byte("test data"))
-	assert(t, err != nil, fmt.Sprintf("Expected AppendRecord to reject kind with newlines, got error: %v", err))
+	// Test validation errors
+	assertValidationErrors(t, func(kind, meta string, data []byte) error {
+		return store.AppendData(kind, meta, data)
+	})
 	// Verify no records were added
 	assert(t, len(store.Records()) == 0, fmt.Sprintf("Expected no records to be added, got %d records", len(store.Records())))
 
 	testRecords := genRandomRecords(1000)
 	currOff := int64(0)
+	var err error
 	for i, recTest := range testRecords {
 		if i%13 == 0 {
 			err = store.CloseFiles()
@@ -108,7 +101,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 			currOff += int64(len(d))
 		}
 
-		err = store.AppendRecord(recTest.Kind, recTest.Meta, recTest.Data)
+		err = store.AppendData(recTest.Kind, recTest.Meta, recTest.Data)
 		assert(t, err == nil, fmt.Sprintf("Failed to append record: %v", err))
 		rec := getLastRecord(store)
 		verifyRecord(t, i, rec, recTest)
@@ -191,6 +184,41 @@ func assert(t *testing.T, cond bool, msg string) {
 	}
 }
 
+// reopenAndVerify closes the store, reopens it, and verifies the expected record count
+func reopenAndVerify(t *testing.T, store *Store, prefix string, expectedCount int) *Store {
+	err := store.CloseFiles()
+	assert(t, err == nil, fmt.Sprintf("Failed to close store: %v", err))
+	store2 := openStore(t, prefix)
+	recs := store2.Records()
+	assert(t, len(recs) == expectedCount, fmt.Sprintf("Expected %d records after reopen, got %d", expectedCount, len(recs)))
+	return store2
+}
+
+// readAndVerifyData reads a record and verifies its data matches expected
+func readAndVerifyData(t *testing.T, store *Store, rec *Record, expectedData []byte, context string) {
+	readData, err := store.ReadRecord(rec)
+	assert(t, err == nil, fmt.Sprintf("%s: Failed to read record: %v", context, err))
+	assert(t, bytes.Equal(readData, expectedData), fmt.Sprintf("%s: Data mismatch", context))
+}
+
+// assertRecordType verifies the record's inline flag and fileName
+func assertRecordType(t *testing.T, rec *Record, isInline bool, fileName string, context string) {
+	assert(t, rec.DataInline == isInline, fmt.Sprintf("%s: Expected DataInline=%v, got %v", context, isInline, rec.DataInline))
+	assert(t, rec.FileName == fileName, fmt.Sprintf("%s: Expected FileName=%q, got %q", context, fileName, rec.FileName))
+}
+
+// assertValidationErrors tests that the append function rejects invalid kind/meta values
+func assertValidationErrors(t *testing.T, appendFunc func(kind, meta string, data []byte) error) {
+	err := appendFunc("", "meta", []byte("data"))
+	assert(t, err != nil, "Expected error for empty kind")
+	err = appendFunc("test kind", "meta", []byte("data"))
+	assert(t, err != nil, "Expected error for kind with spaces")
+	err = appendFunc("kind\nnewline", "meta", []byte("data"))
+	assert(t, err != nil, "Expected error for kind with newlines")
+	err = appendFunc("kind", "meta\nwith\nnewlines", []byte("data"))
+	assert(t, err != nil, "Expected error for meta with newlines")
+}
+
 func TestAppendRecordInline(t *testing.T) {
 	store := createStore(t, "inline_")
 
@@ -198,44 +226,39 @@ func TestAppendRecordInline(t *testing.T) {
 	kind := "config"
 	meta := "settings"
 	data := []byte(`{"theme":"dark","fontSize":14}`)
-	err := store.AppendRecordInline(kind, meta, data)
+	err := store.AppendDataInline(kind, meta, data)
 	assert(t, err == nil, fmt.Sprintf("Failed to append inline record: %v", err))
 
 	rec := getLastRecord(store)
 	assert(t, rec.Kind == kind, fmt.Sprintf("Expected kind %s, got %s", kind, rec.Kind))
 	assert(t, rec.Meta == meta, fmt.Sprintf("Expected meta %s, got %s", meta, rec.Meta))
 	assert(t, rec.Size == int64(len(data)), fmt.Sprintf("Expected size %d, got %d", len(data), rec.Size))
-	assert(t, rec.DataInline == true, "Expected DataInline to be true")
+	assertRecordType(t, rec, true, "", "config record")
 
 	// Read back the data
-	readData, err := store.ReadRecord(rec)
-	assert(t, err == nil, fmt.Sprintf("Failed to read inline record: %v", err))
-	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch, expected %s, got %s", data, readData))
+	readAndVerifyData(t, store, rec, data, "config record")
 
 	// Test with empty data
-	err = store.AppendRecordInline("empty", "test", nil)
+	err = store.AppendDataInline("empty", "test", nil)
 	assert(t, err == nil, fmt.Sprintf("Failed to append empty inline record: %v", err))
 	recEmpty := getLastRecord(store)
 	assert(t, recEmpty.Size == 0, fmt.Sprintf("Expected size 0, got %d", recEmpty.Size))
-	assert(t, recEmpty.DataInline == true, "Expected DataInline to be true for empty record")
+	assertRecordType(t, recEmpty, true, "", "empty record")
 
 	// Test with validation errors
-	err = store.AppendRecordInline("", meta, data)
-	assert(t, err != nil, "Expected error for empty kind")
-	err = store.AppendRecordInline("test kind", meta, data)
-	assert(t, err != nil, "Expected error for kind with spaces")
-	err = store.AppendRecordInline(kind, "meta\nwith\nnewlines", data)
-	assert(t, err != nil, "Expected error for meta with newlines")
+	assertValidationErrors(t, func(kind, meta string, data []byte) error {
+		return store.AppendDataInline(kind, meta, data)
+	})
 
 	// Mix inline and regular records
 	regularData := []byte("regular record data")
-	err = store.AppendRecord("regular", "rec1", regularData)
+	err = store.AppendData("regular", "rec1", regularData)
 	assert(t, err == nil, fmt.Sprintf("Failed to append regular record: %v", err))
 	recRegular := getLastRecord(store)
-	assert(t, recRegular.DataInline == false, "Expected DataInline to be false for regular record")
+	assertRecordType(t, recRegular, false, "", "regular record")
 
 	inlineData2 := []byte("another inline")
-	err = store.AppendRecordInline("inline2", "rec2", inlineData2)
+	err = store.AppendDataInline("inline2", "rec2", inlineData2)
 	assert(t, err == nil, fmt.Sprintf("Failed to append second inline record: %v", err))
 
 	// Verify all records can be read correctly (config, empty, regular, inline2)
@@ -243,26 +266,18 @@ func TestAppendRecordInline(t *testing.T) {
 	assert(t, len(recs) == 4, fmt.Sprintf("Expected 4 records, got %d", len(recs)))
 
 	// Reopen store and verify persistence
-	err = store.CloseFiles()
-	assert(t, err == nil, fmt.Sprintf("Failed to close store: %v", err))
-
-	store2 := openStore(t, "inline_")
+	store2 := reopenAndVerify(t, store, "inline_", 4)
 	recs2 := store2.Records()
-	assert(t, len(recs2) == 4, fmt.Sprintf("Expected 4 records after reopen, got %d", len(recs2)))
 
 	// Verify inline record data after reopen
 	for _, rec := range recs2 {
 		if rec.Kind == "config" {
-			assert(t, rec.DataInline == true, "Expected DataInline to be true after reopen")
-			readData, err := store2.ReadRecord(rec)
-			assert(t, err == nil, fmt.Sprintf("Failed to read inline record after reopen: %v", err))
-			assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch after reopen, expected %s, got %s", data, readData))
+			assertRecordType(t, rec, true, "", "config after reopen")
+			readAndVerifyData(t, store2, rec, data, "config after reopen")
 		}
 		if rec.Kind == "regular" {
-			assert(t, rec.DataInline == false, "Expected DataInline to be false for regular record after reopen")
-			readData, err := store2.ReadRecord(rec)
-			assert(t, err == nil, fmt.Sprintf("Failed to read regular record after reopen: %v", err))
-			assert(t, bytes.Equal(readData, regularData), fmt.Sprintf("Regular data mismatch, expected %s, got %s", regularData, readData))
+			assertRecordType(t, rec, false, "", "regular after reopen")
+			readAndVerifyData(t, store2, rec, regularData, "regular after reopen")
 		}
 	}
 }
@@ -275,30 +290,26 @@ func TestAppendRecordInlineWithTimestamp(t *testing.T) {
 	data := []byte("log message here")
 	customTs := int64(1704067200000) // 2024-01-01 00:00:00 UTC
 
-	err := store.AppendRecordInlineWithTimestamp(kind, meta, data, customTs)
+	err := store.AppendDataInlineWithTimestamp(kind, meta, data, customTs)
 	assert(t, err == nil, fmt.Sprintf("Failed to append inline record with timestamp: %v", err))
 
 	rec := getLastRecord(store)
 	assert(t, rec.TimestampMs == customTs, fmt.Sprintf("Expected timestamp %d, got %d", customTs, rec.TimestampMs))
-	assert(t, rec.DataInline == true, "Expected DataInline to be true")
+	assertRecordType(t, rec, true, "", "log record")
 	assert(t, rec.Kind == kind, fmt.Sprintf("Expected kind %s, got %s", kind, rec.Kind))
 
-	readData, err := store.ReadRecord(rec)
-	assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
-	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch, expected %s, got %s", data, readData))
+	readAndVerifyData(t, store, rec, data, "log record")
 
 	// Test with zero timestamp (should use current time)
-	err = store.AppendRecordInlineWithTimestamp("log", "entry2", []byte("another log"), 0)
+	err = store.AppendDataInlineWithTimestamp("log", "entry2", []byte("another log"), 0)
 	assert(t, err == nil, fmt.Sprintf("Failed to append inline record with zero timestamp: %v", err))
 	rec2 := getLastRecord(store)
 	assert(t, rec2.TimestampMs > 0, "Expected non-zero timestamp")
 	assert(t, rec2.TimestampMs <= time.Now().UTC().UnixMilli(), "Expected timestamp not in the future")
 
 	// Reopen and verify timestamp persistence
-	store.CloseFiles()
-	store2 := openStore(t, "inline_ts_")
+	store2 := reopenAndVerify(t, store, "inline_ts_", 2)
 	recs := store2.Records()
-	assert(t, len(recs) == 2, fmt.Sprintf("Expected 2 records, got %d", len(recs)))
 	assert(t, recs[0].TimestampMs == customTs, fmt.Sprintf("Expected custom timestamp %d after reopen, got %d", customTs, recs[0].TimestampMs))
 }
 
@@ -320,7 +331,7 @@ func TestInlineRecordMultiple(t *testing.T) {
 	}
 
 	for _, td := range testData {
-		err := store.AppendRecordInline(td.kind, td.meta, td.data)
+		err := store.AppendDataInline(td.kind, td.meta, td.data)
 		assert(t, err == nil, fmt.Sprintf("Failed to append inline record %s: %v", td.kind, err))
 	}
 
@@ -332,26 +343,22 @@ func TestInlineRecordMultiple(t *testing.T) {
 		rec := recs[i]
 		assert(t, rec.Kind == td.kind, fmt.Sprintf("Record %d: kind mismatch", i))
 		assert(t, rec.Meta == td.meta, fmt.Sprintf("Record %d: meta mismatch", i))
-		assert(t, rec.DataInline == true, fmt.Sprintf("Record %d: expected DataInline true", i))
-		readData, err := store.ReadRecord(rec)
-		assert(t, err == nil, fmt.Sprintf("Record %d: failed to read: %v", i, err))
-		assert(t, bytes.Equal(readData, td.data), fmt.Sprintf("Record %d: data mismatch", i))
+		ctx := fmt.Sprintf("Record %d", i)
+		assertRecordType(t, rec, true, "", ctx)
+		readAndVerifyData(t, store, rec, td.data, ctx)
 	}
 
 	// Reopen and verify
-	store.CloseFiles()
-	store2 := openStore(t, "inline_multi_")
+	store2 := reopenAndVerify(t, store, "inline_multi_", len(testData))
 	recs2 := store2.Records()
-	assert(t, len(recs2) == len(testData), fmt.Sprintf("Expected %d records after reopen, got %d", len(testData), len(recs2)))
 
 	for i, td := range testData {
 		rec := recs2[i]
 		assert(t, rec.Kind == td.kind, fmt.Sprintf("After reopen, record %d: kind mismatch", i))
 		assert(t, rec.Meta == td.meta, fmt.Sprintf("After reopen, record %d: meta mismatch", i))
-		assert(t, rec.DataInline == true, fmt.Sprintf("After reopen, record %d: expected DataInline true", i))
-		readData, err := store2.ReadRecord(rec)
-		assert(t, err == nil, fmt.Sprintf("After reopen, record %d: failed to read: %v", i, err))
-		assert(t, bytes.Equal(readData, td.data), fmt.Sprintf("After reopen, record %d: data mismatch", i))
+		ctx := fmt.Sprintf("After reopen, record %d", i)
+		assertRecordType(t, rec, true, "", ctx)
+		readAndVerifyData(t, store2, rec, td.data, ctx)
 	}
 }
 
@@ -360,22 +367,22 @@ func TestInlineRecordNewlineHandling(t *testing.T) {
 
 	// Test data that ends with newline
 	dataWithNewline := []byte("data ending with newline\n")
-	err := store.AppendRecordInline("with_newline", "meta1", dataWithNewline)
+	err := store.AppendDataInline("with_newline", "meta1", dataWithNewline)
 	assert(t, err == nil, fmt.Sprintf("Failed to append inline record with newline: %v", err))
 
 	// Test data that does NOT end with newline
 	dataWithoutNewline := []byte("data without newline")
-	err = store.AppendRecordInline("without_newline", "meta2", dataWithoutNewline)
+	err = store.AppendDataInline("without_newline", "meta2", dataWithoutNewline)
 	assert(t, err == nil, fmt.Sprintf("Failed to append inline record without newline: %v", err))
 
 	// Test another record with newline to ensure parsing continues correctly
 	dataWithNewline2 := []byte("another with newline\n")
-	err = store.AppendRecordInline("with_newline2", "meta3", dataWithNewline2)
+	err = store.AppendDataInline("with_newline2", "meta3", dataWithNewline2)
 	assert(t, err == nil, fmt.Sprintf("Failed to append second inline record with newline: %v", err))
 
 	// Test another record without newline
 	dataWithoutNewline2 := []byte("another without newline")
-	err = store.AppendRecordInline("without_newline2", "meta4", dataWithoutNewline2)
+	err = store.AppendDataInline("without_newline2", "meta4", dataWithoutNewline2)
 	assert(t, err == nil, fmt.Sprintf("Failed to append second inline record without newline: %v", err))
 
 	// Verify all records before reopen
@@ -383,37 +390,20 @@ func TestInlineRecordNewlineHandling(t *testing.T) {
 	assert(t, len(recs) == 4, fmt.Sprintf("Expected 4 records, got %d", len(recs)))
 
 	// Verify data integrity
-	d1, _ := store.ReadRecord(recs[0])
-	assert(t, bytes.Equal(d1, dataWithNewline), "Data with newline mismatch")
-	d2, _ := store.ReadRecord(recs[1])
-	assert(t, bytes.Equal(d2, dataWithoutNewline), "Data without newline mismatch")
-	d3, _ := store.ReadRecord(recs[2])
-	assert(t, bytes.Equal(d3, dataWithNewline2), "Second data with newline mismatch")
-	d4, _ := store.ReadRecord(recs[3])
-	assert(t, bytes.Equal(d4, dataWithoutNewline2), "Second data without newline mismatch")
+	readAndVerifyData(t, store, recs[0], dataWithNewline, "record 0")
+	readAndVerifyData(t, store, recs[1], dataWithoutNewline, "record 1")
+	readAndVerifyData(t, store, recs[2], dataWithNewline2, "record 2")
+	readAndVerifyData(t, store, recs[3], dataWithoutNewline2, "record 3")
 
 	// Reopen and verify persistence
-	store.CloseFiles()
-	store2 := openStore(t, "inline_newline_")
+	store2 := reopenAndVerify(t, store, "inline_newline_", 4)
 	recs2 := store2.Records()
-	assert(t, len(recs2) == 4, fmt.Sprintf("Expected 4 records after reopen, got %d", len(recs2)))
 
 	// Verify data after reopen
-	d1, err = store2.ReadRecord(recs2[0])
-	assert(t, err == nil, fmt.Sprintf("Failed to read record 0 after reopen: %v", err))
-	assert(t, bytes.Equal(d1, dataWithNewline), "Data with newline mismatch after reopen")
-
-	d2, err = store2.ReadRecord(recs2[1])
-	assert(t, err == nil, fmt.Sprintf("Failed to read record 1 after reopen: %v", err))
-	assert(t, bytes.Equal(d2, dataWithoutNewline), "Data without newline mismatch after reopen")
-
-	d3, err = store2.ReadRecord(recs2[2])
-	assert(t, err == nil, fmt.Sprintf("Failed to read record 2 after reopen: %v", err))
-	assert(t, bytes.Equal(d3, dataWithNewline2), "Second data with newline mismatch after reopen")
-
-	d4, err = store2.ReadRecord(recs2[3])
-	assert(t, err == nil, fmt.Sprintf("Failed to read record 3 after reopen: %v", err))
-	assert(t, bytes.Equal(d4, dataWithoutNewline2), "Second data without newline mismatch after reopen")
+	readAndVerifyData(t, store2, recs2[0], dataWithNewline, "record 0 after reopen")
+	readAndVerifyData(t, store2, recs2[1], dataWithoutNewline, "record 1 after reopen")
+	readAndVerifyData(t, store2, recs2[2], dataWithNewline2, "record 2 after reopen")
+	readAndVerifyData(t, store2, recs2[3], dataWithoutNewline2, "record 3 after reopen")
 
 	// Verify record sizes are correct (should match original data length)
 	assert(t, recs2[0].Size == int64(len(dataWithNewline)), fmt.Sprintf("Record 0 size mismatch: expected %d, got %d", len(dataWithNewline), recs2[0].Size))
@@ -431,20 +421,17 @@ func TestAppendRecordFile(t *testing.T) {
 	data := []byte("PDF content here")
 	fileName := "doc1.dat"
 
-	err := store.AppendRecordFile(kind, meta, data, fileName)
+	err := store.AppendFile(kind, meta, data, fileName)
 	assert(t, err == nil, fmt.Sprintf("Failed to append file record: %v", err))
 
 	rec := getLastRecord(store)
 	assert(t, rec.Kind == kind, fmt.Sprintf("Expected kind %s, got %s", kind, rec.Kind))
 	assert(t, rec.Meta == meta, fmt.Sprintf("Expected meta %s, got %s", meta, rec.Meta))
 	assert(t, rec.Size == int64(len(data)), fmt.Sprintf("Expected size %d, got %d", len(data), rec.Size))
-	assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s, got %s", fileName, rec.FileName))
-	assert(t, rec.DataInline == false, "Expected DataInline to be false")
+	assertRecordType(t, rec, false, fileName, "file record")
 
 	// Read back the data
-	readData, err := store.ReadRecord(rec)
-	assert(t, err == nil, fmt.Sprintf("Failed to read file record: %v", err))
-	assert(t, bytes.Equal(readData, data), fmt.Sprintf("Data mismatch, expected %s, got %s", data, readData))
+	readAndVerifyData(t, store, rec, data, "file record")
 
 	// Verify the file exists on disk
 	filePath := filepath.Join(store.DataDir, fileName)
@@ -453,28 +440,28 @@ func TestAppendRecordFile(t *testing.T) {
 	assert(t, bytes.Equal(fileData, data), "File data mismatch")
 
 	// Test error: fileName with space
-	err = store.AppendRecordFile("test", "meta", []byte("data"), "file name.dat")
+	err = store.AppendFile("test", "meta", []byte("data"), "file name.dat")
 	assert(t, err != nil, "Expected error for fileName with space")
 
 	// Test error: empty fileName
-	err = store.AppendRecordFile("test", "meta", []byte("data"), "")
+	err = store.AppendFile("test", "meta", []byte("data"), "")
 	assert(t, err != nil, "Expected error for empty fileName")
 
 	// Test validation errors (kind, meta)
-	err = store.AppendRecordFile("", meta, data, "file2.dat")
+	err = store.AppendFile("", meta, data, "file2.dat")
 	assert(t, err != nil, "Expected error for empty kind")
-	err = store.AppendRecordFile("test kind", meta, data, "file3.dat")
+	err = store.AppendFile("test kind", meta, data, "file3.dat")
 	assert(t, err != nil, "Expected error for kind with spaces")
 
 	// Add another file record
 	data2 := []byte("Another file content")
 	fileName2 := "doc2.dat"
-	err = store.AppendRecordFile("attachment", "image.png", data2, fileName2)
+	err = store.AppendFile("attachment", "image.png", data2, fileName2)
 	assert(t, err == nil, fmt.Sprintf("Failed to append second file record: %v", err))
 
 	// Mix file and regular records
 	regularData := []byte("regular record data")
-	err = store.AppendRecord("regular", "rec1", regularData)
+	err = store.AppendData("regular", "rec1", regularData)
 	assert(t, err == nil, fmt.Sprintf("Failed to append regular record: %v", err))
 
 	// Verify all records
@@ -482,26 +469,18 @@ func TestAppendRecordFile(t *testing.T) {
 	assert(t, len(recs) == 3, fmt.Sprintf("Expected 3 records, got %d", len(recs)))
 
 	// Reopen store and verify persistence
-	err = store.CloseFiles()
-	assert(t, err == nil, fmt.Sprintf("Failed to close store: %v", err))
-
-	store2 := openStore(t, "file_")
+	store2 := reopenAndVerify(t, store, "file_", 3)
 	recs2 := store2.Records()
-	assert(t, len(recs2) == 3, fmt.Sprintf("Expected 3 records after reopen, got %d", len(recs2)))
 
 	// Verify file record data after reopen
 	for _, rec := range recs2 {
 		if rec.Kind == "attachment" && rec.Meta == "document.pdf" {
-			assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s after reopen, got %s", fileName, rec.FileName))
-			readData, err := store2.ReadRecord(rec)
-			assert(t, err == nil, fmt.Sprintf("Failed to read file record after reopen: %v", err))
-			assert(t, bytes.Equal(readData, data), "Data mismatch after reopen")
+			assertRecordType(t, rec, false, fileName, "file record after reopen")
+			readAndVerifyData(t, store2, rec, data, "file record after reopen")
 		}
 		if rec.Kind == "regular" {
-			assert(t, rec.FileName == "", "Expected empty fileName for regular record")
-			readData, err := store2.ReadRecord(rec)
-			assert(t, err == nil, fmt.Sprintf("Failed to read regular record after reopen: %v", err))
-			assert(t, bytes.Equal(readData, regularData), "Regular data mismatch")
+			assertRecordType(t, rec, false, "", "regular record after reopen")
+			readAndVerifyData(t, store2, rec, regularData, "regular record after reopen")
 		}
 	}
 }
@@ -515,24 +494,20 @@ func TestAppendRecordFileWithTimestamp(t *testing.T) {
 	fileName := "backup1.dat"
 	customTs := int64(1704067200000) // 2024-01-01 00:00:00 UTC
 
-	err := store.AppendRecordFileWithTimestamp(kind, meta, data, fileName, customTs)
+	err := store.AppendFileWithTimestamp(kind, meta, data, fileName, customTs)
 	assert(t, err == nil, fmt.Sprintf("Failed to append file record with timestamp: %v", err))
 
 	rec := getLastRecord(store)
 	assert(t, rec.TimestampMs == customTs, fmt.Sprintf("Expected timestamp %d, got %d", customTs, rec.TimestampMs))
-	assert(t, rec.FileName == fileName, fmt.Sprintf("Expected fileName %s, got %s", fileName, rec.FileName))
+	assertRecordType(t, rec, false, fileName, "file record with timestamp")
 
-	readData, err := store.ReadRecord(rec)
-	assert(t, err == nil, fmt.Sprintf("Failed to read record: %v", err))
-	assert(t, bytes.Equal(readData, data), "Data mismatch")
+	readAndVerifyData(t, store, rec, data, "file record with timestamp")
 
 	// Reopen and verify timestamp persistence
-	store.CloseFiles()
-	store2 := openStore(t, "file_ts_")
+	store2 := reopenAndVerify(t, store, "file_ts_", 1)
 	recs := store2.Records()
-	assert(t, len(recs) == 1, fmt.Sprintf("Expected 1 record, got %d", len(recs)))
 	assert(t, recs[0].TimestampMs == customTs, fmt.Sprintf("Expected timestamp %d after reopen, got %d", customTs, recs[0].TimestampMs))
-	assert(t, recs[0].FileName == fileName, fmt.Sprintf("Expected fileName %s after reopen, got %s", fileName, recs[0].FileName))
+	assertRecordType(t, recs[0], false, fileName, "file record after reopen")
 }
 
 func TestMixedRecordTypes(t *testing.T) {
@@ -540,15 +515,15 @@ func TestMixedRecordTypes(t *testing.T) {
 
 	// Add different types of records
 	regularData := []byte("regular data")
-	err := store.AppendRecord("regular", "meta1", regularData)
+	err := store.AppendData("regular", "meta1", regularData)
 	assert(t, err == nil, fmt.Sprintf("Failed to append regular record: %v", err))
 
 	inlineData := []byte("inline data")
-	err = store.AppendRecordInline("inline", "meta2", inlineData)
+	err = store.AppendDataInline("inline", "meta2", inlineData)
 	assert(t, err == nil, fmt.Sprintf("Failed to append inline record: %v", err))
 
 	fileData := []byte("file data")
-	err = store.AppendRecordFile("file", "meta3", fileData, "mixed.dat")
+	err = store.AppendFile("file", "meta3", fileData, "mixed.dat")
 	assert(t, err == nil, fmt.Sprintf("Failed to append file record: %v", err))
 
 	// Verify all records
@@ -556,36 +531,24 @@ func TestMixedRecordTypes(t *testing.T) {
 	assert(t, len(recs) == 3, fmt.Sprintf("Expected 3 records, got %d", len(recs)))
 
 	// Verify each record type
-	assert(t, recs[0].DataInline == false && recs[0].FileName == "", "Record 0 should be regular")
-	assert(t, recs[1].DataInline == true && recs[1].FileName == "", "Record 1 should be inline")
-	assert(t, recs[2].DataInline == false && recs[2].FileName == "mixed.dat", "Record 2 should be file")
+	assertRecordType(t, recs[0], false, "", "regular record")
+	assertRecordType(t, recs[1], true, "", "inline record")
+	assertRecordType(t, recs[2], false, "mixed.dat", "file record")
 
 	// Read all records
-	d1, _ := store.ReadRecord(recs[0])
-	assert(t, bytes.Equal(d1, regularData), "Regular data mismatch")
-
-	d2, _ := store.ReadRecord(recs[1])
-	assert(t, bytes.Equal(d2, inlineData), "Inline data mismatch")
-
-	d3, _ := store.ReadRecord(recs[2])
-	assert(t, bytes.Equal(d3, fileData), "File data mismatch")
+	readAndVerifyData(t, store, recs[0], regularData, "regular record")
+	readAndVerifyData(t, store, recs[1], inlineData, "inline record")
+	readAndVerifyData(t, store, recs[2], fileData, "file record")
 
 	// Reopen and verify
-	store.CloseFiles()
-	store2 := openStore(t, "mixed_")
+	store2 := reopenAndVerify(t, store, "mixed_", 3)
 	recs2 := store2.Records()
-	assert(t, len(recs2) == 3, fmt.Sprintf("Expected 3 records after reopen, got %d", len(recs2)))
 
-	assert(t, recs2[0].DataInline == false && recs2[0].FileName == "", "After reopen: record 0 should be regular")
-	assert(t, recs2[1].DataInline == true && recs2[1].FileName == "", "After reopen: record 1 should be inline")
-	assert(t, recs2[2].DataInline == false && recs2[2].FileName == "mixed.dat", "After reopen: record 2 should be file")
+	assertRecordType(t, recs2[0], false, "", "regular after reopen")
+	assertRecordType(t, recs2[1], true, "", "inline after reopen")
+	assertRecordType(t, recs2[2], false, "mixed.dat", "file after reopen")
 
-	d1, _ = store2.ReadRecord(recs2[0])
-	assert(t, bytes.Equal(d1, regularData), "After reopen: regular data mismatch")
-
-	d2, _ = store2.ReadRecord(recs2[1])
-	assert(t, bytes.Equal(d2, inlineData), "After reopen: inline data mismatch")
-
-	d3, _ = store2.ReadRecord(recs2[2])
-	assert(t, bytes.Equal(d3, fileData), "After reopen: file data mismatch")
+	readAndVerifyData(t, store2, recs2[0], regularData, "regular after reopen")
+	readAndVerifyData(t, store2, recs2[1], inlineData, "inline after reopen")
+	readAndVerifyData(t, store2, recs2[2], fileData, "file after reopen")
 }

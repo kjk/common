@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"os"
 	"path"
 	"path/filepath"
@@ -191,28 +192,57 @@ func IterReadDirFS(fsys fs.ReadDirFS, startDir string, cb func(string, fs.DirEnt
 	if startDir == "" || startDir == "/" {
 		return fmt.Errorf("startDir is '%s', should be '.' for ", startDir)
 	}
-	dirsToVisit := []string{startDir}
-	for len(dirsToVisit) > 0 {
-		dir := dirsToVisit[0]
-		dirsToVisit = dirsToVisit[1:]
-
-		dirs, err := fs.ReadDir(fsys, dir)
-		if err != nil {
+	for v := range DirFSIter(fsys, startDir) {
+		if err := cb(v.Path, v.DirEntry); err != nil {
 			return err
-		}
-		for _, d := range dirs {
-			fpath := path.Join(dir, d.Name())
-			if d.IsDir() {
-				dirsToVisit = append(dirsToVisit, fpath)
-				continue
-			}
-
-			if err := cb(fpath, d); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
+}
+
+type DirEntryWithPath struct {
+	Path     string
+	DirEntry fs.DirEntry
+}
+
+// DirFSIter iterates over all entries and sub-entries in fsys starting from startDir.
+// For each entry, it yields path relative to the root of fsys.
+// Only provides files, not dirs.
+func DirFSIter(fsys fs.ReadDirFS, startDir string) iter.Seq[*DirEntryWithPath] {
+	return func(yield func(*DirEntryWithPath) bool) {
+		dirsToVisit := []string{startDir}
+		var v DirEntryWithPath
+		for len(dirsToVisit) > 0 {
+			dir := dirsToVisit[0]
+			dirsToVisit = dirsToVisit[1:]
+			entries, err := fsys.ReadDir(dir)
+			if err != nil {
+				return
+			}
+
+			for _, entry := range entries {
+				filePath := path.Join(dir, entry.Name())
+
+				if entry.IsDir() {
+					dirsToVisit = append(dirsToVisit, filePath)
+					continue
+				}
+				v.Path = filePath
+				v.DirEntry = entry
+				if !yield(&v) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func CountFilesInFS(fsys fs.ReadDirFS) int {
+	n := 0
+	for range DirFSIter(fsys, ".") {
+		n++
+	}
+	return n
 }
 
 type syncer interface {
@@ -224,4 +254,12 @@ func MaybeSync(w io.Writer) error {
 		return f.Sync()
 	}
 	return nil
+}
+
+func WriteToFile(path string, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	os.Remove(path)
+	return os.WriteFile(path, []byte(content), 0644)
 }
