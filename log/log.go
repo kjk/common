@@ -25,8 +25,6 @@ var (
 	errorsLog *WriteDaily
 	eventsLog *WriteDaily
 
-	zeroTime = time.Time{}
-
 	// if true, Verbosef() will log messages
 	Verbose bool
 )
@@ -378,7 +376,7 @@ func HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	Logf("HandleEvent: '%s', vals: %#v\n", name, vals)
-	EventFromRequest(r, name, vals, zeroTime)
+	EventFromRequest(r, name, vals)
 	v := map[string]any{
 		"Message": "ok",
 	}
