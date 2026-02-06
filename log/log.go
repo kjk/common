@@ -260,9 +260,9 @@ func pickFirst(s string) string {
 	return strings.TrimSpace(parts[0])
 }
 
-// try to pick the most accurate IP address of the client
+// BestRemoteAddress picks the most accurate IP address from client request
 // needed because of proxies
-func BestRmoteAddress(r *http.Request) string {
+func BestRemoteAddress(r *http.Request) string {
 	h := r.Header
 	val := h.Get("CF-Connecting-IP")
 	if len(val) > 0 {
@@ -287,7 +287,7 @@ func appendRequestValues(r *http.Request, vals []any) []any {
 	if r == nil {
 		return vals
 	}
-	ip := BestRmoteAddress(r)
+	ip := BestRemoteAddress(r)
 	vals = append(vals, "ip", ip)
 	userID := r.Header.Get("X-User")
 	if userID != "" {
@@ -312,6 +312,7 @@ func simpleTypeToStr(v any) string {
 	return fmt.Sprintf("%s", v)
 }
 
+// Event logs event in toon format with
 func Event(name string, vals ...any) {
 	n := len(vals)
 	panicIf(n%2 != 0)
@@ -329,30 +330,7 @@ func Event(name string, vals ...any) {
 	eventsLog.Write(d2)
 }
 
-func EventWithDuration(name string, dur time.Duration, vals ...any) {
-	vals = append(vals, "durmicro", dur.Microseconds())
-	Event(name, vals...)
-}
-
-func EventFromRequest(r *http.Request, name string, vals ...any) {
-	vals = appendRequestValues(r, vals)
-	Event(name, vals...)
-}
-
-func ErrorEventFromRequest(r *http.Request, err error, name string, vals ...any) {
-	vals = appendRequestValues(r, vals)
-	vals = append(vals, "error", err.Error())
-	Event(name, vals...)
-}
-
-func serveJSONStatus(w http.ResponseWriter, v any, statusCode int) {
-	d, _ := json.Marshal(v)
-	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.WriteHeader(statusCode)
-	w.Write(d)
-}
-
-// /api/le?name=<name>&key1=val1&key2=val2...
+// GET /api/le?name=<name>&key1=val1&key2=val2...
 func HandleEvent(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	var vals []any
@@ -383,8 +361,70 @@ func HandleEvent(w http.ResponseWriter, r *http.Request) {
 	serveJSONStatus(w, v, http.StatusOK)
 }
 
+func EventMap(m map[string]any) error {
+	name := "_js"
+	if v, ok := m["name"]; ok {
+		if s, ok := v.(string); ok {
+			name = s
+		}
+	}
+	dt, err := toon.Marshal(m)
+	if err != nil {
+		return err
+	}
+	t := time.Now().UTC()
+	d2 := siser.MarshalLine(name, t, dt, nil)
+	eventsLog.Write(d2)
+	return nil
+}
+
+// EventJSON logs event we presume is JSON encoded
+// it converts it to toon and saves as siser record
+// if name is present, it uses it, otherwise uses "_js"
+func EventJSON(d []byte) error {
+	var m map[string]any
+	if err := json.Unmarshal(d, &m); err != nil {
+		return err
+	}
+	return EventMap(m)
+}
+
+// POST /api/lejson
+func HandleEventJSON(w http.ResponseWriter, r *http.Request) {
+	d, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	EventJSON(d)
+}
+
+func EventWithDuration(name string, dur time.Duration, vals ...any) {
+	vals = append(vals, "durmicro", dur.Microseconds())
+	Event(name, vals...)
+}
+
+func EventFromRequest(r *http.Request, name string, vals ...any) {
+	vals = appendRequestValues(r, vals)
+	Event(name, vals...)
+}
+
+func ErrorEventFromRequest(r *http.Request, err error, name string, vals ...any) {
+	vals = appendRequestValues(r, vals)
+	vals = append(vals, "error", err.Error())
+	Event(name, vals...)
+}
+
+func serveJSONStatus(w http.ResponseWriter, v any, statusCode int) {
+	d, _ := json.Marshal(v)
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.WriteHeader(statusCode)
+	w.Write(d)
+}
+
 func HTTPRequestToWriteDaily(w *WriteDaily, r *http.Request, code int, nWritten int64, dur time.Duration) error {
-	ip := BestRmoteAddress(r)
+	ip := BestRemoteAddress(r)
 
 	rawQuery := r.URL.RawQuery
 	if len(rawQuery) > 128 {

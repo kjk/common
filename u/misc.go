@@ -1,16 +1,13 @@
 package u
 
 import (
-	"context"
 	"fmt"
 	"mime"
-	"os"
+	"net/http"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -29,6 +26,23 @@ func OpenBrowser(url string) error {
 		err = fmt.Errorf("unsupported platform")
 	}
 	return err
+}
+
+// WaitForServerReady waits up to 10 secs for a given url to return
+func WaitForServerReady(uri string) error {
+	c := *http.DefaultClient
+	c.Timeout = time.Second * 2
+	var err error
+	for range 10 {
+		var resp *http.Response
+		resp, err = c.Get(uri)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			return nil
+		}
+		time.Sleep(time.Second * 1)
+	}
+	return nil
 }
 
 // FormatSize formats a number in a human-readable form e.g. 1.24 kB
@@ -192,40 +206,6 @@ func slug(s string, lowerCase bool) string {
 		s = s[:128]
 	}
 	return s
-}
-
-func UpdateGoDeps(dir string, noProxy bool) error {
-	{
-		cmd := exec.Command("go", "get", "-u", ".")
-		cmd.Dir = dir
-		if noProxy {
-			cmd.Env = append(os.Environ(), "GOPROXY=direct")
-		}
-		fmt.Printf("running: %s in dir '%s'\n", cmd.String(), cmd.Dir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			return err
-		}
-	}
-	{
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Dir = dir
-		fmt.Printf("running: %s in dir '%s'\n", cmd.String(), cmd.Dir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		return err
-	}
-}
-
-func WaitForSigIntOrKill() {
-	// Ctrl-C sends SIGINT
-	ctx := context.Background()
-	sctx, stop := signal.NotifyContext(ctx, os.Interrupt /*SIGINT*/, os.Kill /* SIGKILL */, syscall.SIGTERM)
-	defer stop()
-	<-sctx.Done()
 }
 
 // get date and hash of current git checkin
