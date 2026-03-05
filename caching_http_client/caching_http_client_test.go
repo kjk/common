@@ -27,7 +27,7 @@ func must(err error) {
 func listenOnUniquePort(httpSrv *http.Server) {
 	var err error
 	// there's a very small chance of port conflict
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		port := startPort + i
 		mu.Lock()
 		// running explicitly on 127.0.0.1 to not trigger windows firewall
@@ -52,7 +52,7 @@ func getHTTPRoot() string {
 
 func waitForServerToStart() {
 	// wait for the server to start
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(100 * time.Millisecond)
 		uri := getHTTPRoot() + "/ping"
 		req, err := http.NewRequest(http.MethodGet, uri, nil)

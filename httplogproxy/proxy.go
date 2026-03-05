@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,7 +47,7 @@ func must(err error) {
 	}
 }
 
-func panicIf(cond bool, format string, args ...interface{}) {
+func panicIf(cond bool, format string, args ...any) {
 	if cond {
 		s := fmt.Sprintf(format, args...)
 		panic(s)
@@ -226,12 +227,7 @@ func isUnprintable(c byte) bool {
 }
 
 func isBinaryData(d []byte) bool {
-	for _, b := range d {
-		if isUnprintable(b) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(d, isUnprintable)
 }
 
 func asHex(d []byte) ([]byte, bool) {
@@ -260,7 +256,7 @@ func maybePrettyPrintJSON(d []byte) []byte {
 	if d2, ok := asHex(d); ok {
 		return d2
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	err := json.Unmarshal(d, &m)
 	if err != nil {
 		return d
@@ -397,7 +393,7 @@ func Run(logPath string) {
 	}
 
 	sl := newStoppableListener(l)
-	ch := make(chan os.Signal)
+	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt)
 	go func() {
 		<-ch
