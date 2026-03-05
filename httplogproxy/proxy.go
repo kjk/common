@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+
 	"log"
 	"net"
 	"net/http"
@@ -21,11 +21,9 @@ import (
 	"sync/atomic"
 
 	"github.com/elazarl/goproxy"
-	"github.com/elazarl/goproxy/transport"
 )
 
 var (
-	tr               = transport.Transport{Proxy: transport.ProxyFromEnvironment}
 	proxyLogFilePath string
 	proxyLogFile     *os.File
 	sessionID        int32
@@ -196,8 +194,7 @@ func (b *BufferCloser) Close() error {
 
 // SessionData has info about a request/response session
 type SessionData struct {
-	reqBody  bytes.Buffer
-	respBody *BufferCloser
+	reqBody bytes.Buffer
 }
 
 func NewSessionData() *SessionData {
@@ -210,7 +207,7 @@ func handleOnRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *
 	ctx.UserData = sd
 
 	if req.Body != nil {
-		req.Body = ioutil.NopCloser(io.TeeReader(req.Body, &sd.reqBody))
+		req.Body = io.NopCloser(io.TeeReader(req.Body, &sd.reqBody))
 	}
 	return req, nil
 }
@@ -358,11 +355,11 @@ func getCopyOfResponseBody(resp *http.Response) ([]byte, error) {
 	if resp == nil {
 		return nil, nil
 	}
-	d, err := ioutil.ReadAll(resp.Body)
+	d, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	resp.Body = ioutil.NopCloser(bytes.NewBuffer(d))
+	resp.Body = io.NopCloser(bytes.NewBuffer(d))
 	return d, nil
 }
 

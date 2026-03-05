@@ -2,7 +2,8 @@ package caching_http_client
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
+
 	"net/http"
 	"sync"
 	"testing"
@@ -119,7 +120,7 @@ func TestDidCache(t *testing.T) {
 		assert.Equal(t, 1, len(cache.CachedRequests))
 		assert.Equal(t, 0, tr.RequestsFromCache)
 		assert.Equal(t, 1, tr.RequestsNotFromCache)
-		rspBody, err = ioutil.ReadAll(rsp.Body)
+		rspBody, err = io.ReadAll(rsp.Body)
 		assert.NoError(t, err)
 		rsp.Body.Close()
 	}

@@ -3,7 +3,7 @@ package caching_http_client
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
+
 	"net/http"
 	"time"
 )
@@ -28,7 +28,7 @@ func readAndReplaceReadCloser(pBody *io.ReadCloser) ([]byte, error) {
 	if body == nil {
 		return nil, nil
 	}
-	d, err := ioutil.ReadAll(body)
+	d, err := io.ReadAll(body)
 	if err != nil {
 		return nil, err
 	}
