@@ -33,7 +33,7 @@ func genRandomText(n int) []byte {
 
 func genRandomRecords(n int) []testRecord {
 	records := make([]testRecord, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		records[i] = testRecord{
 			Kind: "test_kind_" + string(rune('a'+rng.Intn(26))),
 			Data: genRandomText(rng.Intn(1000)),

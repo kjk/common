@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -210,11 +211,11 @@ func labeledOutput(content ...labeledContent) string {
 			longestLabel = len(v.label)
 		}
 	}
-	var output string
+	var output strings.Builder
 	for _, v := range content {
-		output += "\t" + v.label + ":" + strings.Repeat(" ", longestLabel-len(v.label)) + "\t" + indentMessageLines(v.content, longestLabel) + "\n"
+		output.WriteString("\t" + v.label + ":" + strings.Repeat(" ", longestLabel-len(v.label)) + "\t" + indentMessageLines(v.content, longestLabel) + "\n")
 	}
-	return output
+	return output.String()
 }
 
 // Aligns the provided message so that all lines after the first line start at the same location as the first line.
@@ -238,13 +239,7 @@ func indentMessageLines(message string, longestLabelLen int) string {
 
 // containsKind checks if a specified kind in the slice of kinds.
 func containsKind(kinds []reflect.Kind, kind reflect.Kind) bool {
-	for i := range kinds {
-		if kind == kinds[i] {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(kinds, kind)
 }
 
 // True asserts that the specified value is true.

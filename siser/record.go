@@ -132,7 +132,7 @@ func nonEmptyEndsWithNewline(s string) bool {
 
 func serializableOnLine(s string) bool {
 	n := len(s)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		b := s[i]
 		if b < 32 || b > 127 {
 			return false

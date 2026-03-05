@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -61,12 +62,7 @@ func MakeAllowedFileFilterForExts(exts ...string) FilterFunc {
 
 	return func(path string) bool {
 		fext := strings.ToLower(filepath.Ext(path))
-		for _, ext := range exts {
-			if ext == fext {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(exts, fext)
 	}
 }
 
@@ -80,10 +76,8 @@ func MakeExcludeDirsFilter(dirs ...string) FilterFunc {
 				return true
 			}
 			name := filepath.Base(path)
-			for _, dir := range dirs {
-				if name == dir {
-					return false
-				}
+			if slices.Contains(dirs, name) {
+				return false
 			}
 			path = filepath.Dir(path)
 		}
@@ -125,7 +119,7 @@ func FileLineCount(path string) (int, error) {
 	d = NormalizeNewlines(d)
 	nLines := 1
 	n := len(d)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if d[i] == 10 {
 			nLines++
 		}
