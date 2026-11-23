@@ -1,0 +1,32 @@
+# Always use LF line endings for text files, regardless of core.autocrlf
+* text=auto eol=lf
+
+*.go       text eol=lf
+go.mod     text eol=lf
+go.sum     text eol=lf
+*.md       text eol=lf
+*.sh       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.txt      text eol=lf
+*.html     text eol=lf
+*.css      text eol=lf
+*.js       text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+LICENSE    text eol=lf
+
+# binary files: no line ending conversion or diffs
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.zip  binary
+*.gz   binary
+*.br   binary
+*.zst  binary
+*.zstd binary
+*.pak  binary
+*.bin  binary
