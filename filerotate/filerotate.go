@@ -1,3 +1,8 @@
+// Package filerotate implements a file that automatically rotates
+// (switches to a new file) on a schedule, e.g. daily or hourly.
+// It's meant for log files.
+//
+// See NewDaily, NewHourly and New for examples.
 package filerotate
 
 import (
@@ -10,7 +15,16 @@ import (
 )
 
 type Config struct {
-	DidClose           func(path string, didRotate bool)
+	// DidClose is optional. It's called after a file has been closed.
+	// path is the path of the closed file. didRotate is true if the file
+	// was closed due to rotation and false if it was closed by Close().
+	// It's a good place to post-process a finished file (compress, upload etc.).
+	// It's called while holding a lock so slow work should be done in a goroutine.
+	DidClose func(path string, didRotate bool)
+	// PathIfShouldRotate is required. It's called before each write.
+	// creationTime is when the current file was opened (zero time if no file
+	// was opened yet). It should return "" to keep using the current file
+	// or a path of the new file to rotate to.
 	PathIfShouldRotate func(creationTime time.Time, now time.Time) string
 }
 
@@ -36,7 +50,7 @@ func IsSameDay(t1, t2 time.Time) bool {
 }
 
 func IsSameHour(t1, t2 time.Time) bool {
-	return t1.YearDay() == t2.YearDay() && t1.Hour() == t2.Hour()
+	return IsSameDay(t1, t2) && t1.Hour() == t2.Hour()
 }
 
 func New(config *Config) (*File, error) {
@@ -86,7 +100,9 @@ func MakeHourlyRotateInDir(dir string, fileNameSuffix string) func(time.Time, ti
 	}
 }
 
-// NewDaily creates a new file, rotating daily in a given directory
+// NewDaily creates a new file, rotating daily in a given directory.
+// Files are named "YYYY-MM-DD-${fileUniqueName}" (or "YYYY-MM-DD.txt" if
+// fileUniqueName is empty). didClose is optional, see Config.DidClose.
 func NewDaily(dir string, fileUniqueName string, didClose func(path string, didRotate bool)) (*File, error) {
 	daily := MakeDailyRotateInDir(dir, fileUniqueName)
 	config := Config{
@@ -96,7 +112,9 @@ func NewDaily(dir string, fileUniqueName string, didClose func(path string, didR
 	return New(&config)
 }
 
-// NewHourly creates a new file, rotating hourly in a given directory
+// NewHourly creates a new file, rotating hourly in a given directory.
+// Files are named "YYYY-MM-DD_HH-${logUniqueName}" (or "YYYY-MM-DD_HH.txt" if
+// logUniqueName is empty). didClose is optional, see Config.DidClose.
 func NewHourly(dir string, logUniqueName string, didClose func(path string, didRotate bool)) (*File, error) {
 	hourly := MakeHourlyRotateInDir(dir, logUniqueName)
 	config := Config{
