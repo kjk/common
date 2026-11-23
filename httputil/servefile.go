@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,47 +62,64 @@ func TryServeFileFromFS(w http.ResponseWriter, r *http.Request, opts *ServeFileO
 	return serveFileFromFS(w, r, opts, fsPath)
 }
 
+// fsPathForURL returns path in fs for url path, under dirPrefix.
+// urlPath is cleaned first so that it can't escape dirPrefix with "..".
+func fsPathForURL(dirPrefix string, urlPath string) string {
+	p := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
+	return path.Join(dirPrefix, p)
+}
+
+// TryServeURLFromFS serves r.URL.Path from opts.FS (under opts.DirPrefix).
+// Returns false if there is no file for this url.
+// "/foo/" is served from "foo/index.html" (and "/" from "index.html").
+// With SupportCleanURLS "/foo" is served from "foo.html".
+// ForceCleanURLS also redirects "/foo.html" => "/foo" and "/foo/index.html" => "/foo/".
 func TryServeURLFromFS(w http.ResponseWriter, r *http.Request, opts *ServeFileOptions) bool {
 	dirPrefix := opts.DirPrefix
 	u.PanicIf(strings.HasPrefix(dirPrefix, "/"), "dirPrefix should not start with /")
-	uri := r.URL.Path
-	fsPath := path.Join(dirPrefix, uri)
 	fsys := opts.FS
-	pathExists := u.FsFileExists(fsys, fsPath)
-	if pathExists && opts.ForceCleanURLS {
-		ext := filepath.Ext(uri)
-		// redirect /foo.html => /foo
-		if strings.EqualFold(ext, ".html") {
-			uri = uri[:len(uri)-len(ext)]
-			SmartPermanentRedirect(w, r, uri)
-			return true
-		}
+	uri := r.URL.Path
+	isDirURL := uri == "" || strings.HasSuffix(uri, "/")
+	cleanURI := path.Clean("/" + uri) // starts with "/", no trailing "/"
+
+	if opts.ForceCleanURLS && !isDirURL && u.FsFileExists(fsys, fsPathForURL(dirPrefix, cleanURI)) {
+		// must check before generic .html redirect
 		// redirect /foo/index.html => /foo/
-		if strings.HasSuffix(uri, "/index.html") {
-			uri = strings.TrimSuffix(uri, "index.html")
-			SmartPermanentRedirect(w, r, uri)
+		if strings.HasSuffix(cleanURI, "/index.html") {
+			SmartPermanentRedirect(w, r, strings.TrimSuffix(cleanURI, "index.html"))
 			return true
 		}
-	}
-	// try `/foo/` as `/foo/index.html
-	if strings.HasSuffix(uri, "/") {
-		fsPath = path.Join(dirPrefix, uri+"index.html")
-		pathExists = u.FsFileExists(fsys, fsPath)
+		// redirect /foo.html => /foo
+		ext := path.Ext(cleanURI)
+		if strings.EqualFold(ext, ".html") {
+			SmartPermanentRedirect(w, r, cleanURI[:len(cleanURI)-len(ext)])
+			return true
+		}
 	}
 
+	var fsPath string
+	if isDirURL {
+		// try `/foo/` as `/foo/index.html`
+		fsPath = fsPathForURL(dirPrefix, path.Join(cleanURI, "index.html"))
+	} else {
+		fsPath = fsPathForURL(dirPrefix, cleanURI)
+	}
+	pathExists := u.FsFileExists(fsys, fsPath)
+
 	cleanURLS := opts.SupportCleanURLS || opts.ForceCleanURLS
-	if !pathExists && cleanURLS {
+	if !pathExists && cleanURLS && !isDirURL {
 		// try '/foo' as '/foo.html'
-		fsPath = path.Join(dirPrefix, uri+".html")
-		if !u.FsFileExists(fsys, fsPath) {
-			return false
-		}
+		fsPath = fsPathForURL(dirPrefix, cleanURI+".html")
+		pathExists = u.FsFileExists(fsys, fsPath)
+	}
+	if !pathExists {
+		return false
 	}
 
 	// at this point fsPath exists in fsys
 	isLongLived := false
 	for _, prefix := range opts.LongLivedURLPrefixes {
-		if strings.HasPrefix(uri, prefix) {
+		if strings.HasPrefix(cleanURI, prefix) {
 			isLongLived = true
 			break
 		}
@@ -114,9 +132,28 @@ func TryServeURLFromFS(w http.ResponseWriter, r *http.Request, opts *ServeFileOp
 	return serveFileFromFS(w, r, opts, fsPath)
 }
 
+// canServeBr returns true if client accepts brotli encoding
+// i.e. Accept-Encoding contains "br" without "q=0"
 func canServeBr(r *http.Request) bool {
 	enc := r.Header.Get("Accept-Encoding")
-	return strings.Contains(enc, "br")
+	for part := range strings.SplitSeq(enc, ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "br") {
+			continue
+		}
+		for param := range strings.SplitSeq(params, ";") {
+			k, v, _ := strings.Cut(strings.TrimSpace(param), "=")
+			if strings.TrimSpace(k) != "q" {
+				continue
+			}
+			q, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err == nil && q == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // if we have a *.br version in opts.FS, serve it

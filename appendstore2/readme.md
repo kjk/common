@@ -53,7 +53,7 @@ Additional advantages:
 - code is 0.1% of size of a database
 - robust because simple, append-only format
 - easier to work with than a database
-- data is in failes, easy to bakck up, easy to move around
+- data is in files, easy to back up, easy to move around
 - human-readable index file makes inspection easy
 
 Of course replacing PostgreSQL or SQLite with a simple append-only files sounds like a delusion.
@@ -124,7 +124,7 @@ Here's how we would store them in `appendstore2`:
   - kind: "paste"
   - meta: "id:<userID-pasteId> title:<title> type:<type>"
   - timestamp: time of creation i.e. CreatedAt
-  - data: raw text of the pate
+  - data: raw text of the paste
 
 Design decisions.
 
@@ -138,7 +138,7 @@ Another option would be to store all non-essential data about paste in data, enc
 
 Important: we split the data into small "hot" and "cold" data (potentially large). Hot data is stored in memory for fast access. Cold data is stored in appendstore2 for durability.
 
-Hot data allows us to performa common operations without reading from disk:
+Hot data allows us to perform common operations without reading from disk:
 * we can find a user by id or name (id is stored in unique cookie)
 * we can list all users
 * we can find all pastes by an user 
@@ -153,7 +153,7 @@ var (
     pasteByID map[string]*Paste
     pastesByUserID map[string][]*Paste
 )
-````
+```
 I tend to default to simplicity i.e. arrays.
 
 To store metadata the simplest thing to do is to use JSON. Metadata doesn't allow newlines so you need to use compact JSON encoding.
@@ -175,7 +175,7 @@ func addUser(name string) (*User, error) {
     if err != nil {
         return nil, err
     }
-    _, err = store.Append(kindUser, meta, nil)
+    err = store.AppendData(kindUser, string(meta), nil)
     if err != nil {
         return nil, err
     }

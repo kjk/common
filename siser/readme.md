@@ -33,12 +33,13 @@ func createWriter() (*siser.Writer, error) {
 
 func logHTTPRequest(w *siser.Writer, url string, ipAddr string, statusCode int) error {
 	var rec siser.Record
-	// if you give the record a name (optional) you can
+	// name is optional; it allows writing different kinds of records
+	// to the same file
 	rec.Name = "httplog"
 	// you can append multiple key/value pairs at once
 	rec.Write("url", url, "ipaddr", ipAddr)
-	// or assemble with multiple calls
-	rec.Writes("code", strconv.Itoa(statusCode))
+	// or assemble with multiple calls. values don't have to be strings
+	rec.Write("code", statusCode)
 	_, err := w.WriteRecord(&rec)
 	return err
 }
@@ -46,14 +47,15 @@ func logHTTPRequest(w *siser.Writer, url string, ipAddr string, statusCode int) 
 
 The data will be written to writer underlying `siser.Writer` as:
 ```
-61 1553488435903 httplog
+--- 60 1553488435903 httplog
 url: https://blog.kowalczyk.info
 ipaddr: 10.0.0.1
 code: 200
 ```
 
 Explanation:
-* `61` is the size of the data. This allows us to read the exact number of bytes in the record
+* `--- ` marks the start of a record, for readability
+* `60` is the size of the data. This allows us to read the exact number of bytes in the record
 * `1553488435903` is a timestamp which is Unix epoch time in milliseconds (more precision than standard Unix time which is in seconds)
 * `httplog` is optional name of the record so that we can write many types of records to the same file
 
@@ -62,15 +64,15 @@ To read all records from the file:
 f, err := os.Open("http_access.log")
 fatalIfErr(err)
 defer f.Close()
-reader := siser.NewReader(f)
+reader := siser.NewReader(bufio.NewReader(f))
 for reader.ReadNextRecord() {
-	rec := r.Record
+	rec := reader.Record
 	name := rec.Name // "httplog"
 	timestamp := rec.Timestamp
 	code, ok := rec.Get("code")
-	// get rest of values and and do something with them
+	// get rest of values (rec.Entries) and do something with them
 }
-fatalIfErr(rec.Err())
+fatalIfErr(reader.Err())
 ```
 
 ## Usage scenarios
@@ -102,7 +104,7 @@ Some implementation decisions were made with performance in mind.
 
 Given key/value nature of the record, an easy choice would be to use map[string]string as source to encode/decode functions.
 
-However `[]string` is more efficient than a `map`. Additionally, a slice can be reused across multiple records. We can clear it by setting the size to zero and reuse the underlying array. A map would require allocating a new instance for each record, which would create a lot of work for garbage collector.
+However a slice of key/value pairs (`[]siser.Entry`) is more efficient than a `map`. Additionally, a slice can be reused across multiple records. We can clear it by setting the size to zero and reuse the underlying array. A map would require allocating a new instance for each record, which would create a lot of work for garbage collector.
 
 When serializing, you need to use `Reset` method to get the benefit of efficient re-use of the `Record`.
 

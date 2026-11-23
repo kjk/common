@@ -148,61 +148,47 @@ func (s *Store) CloseFiles() error {
 	return err2
 }
 
-// writeWithOptionalNewline writes data to the file followed by a newline if data is not empty and doesn't end with one.
-// this is for readability of log files: \n is a separator between records
-func writeWithOptionalNewline(file *os.File, data []byte, sync bool) (int, error) {
-	if len(data) == 0 {
-		return 0, nil
+// appendWithOptionalNewline appends data to buf followed by a newline if data
+// is not empty and doesn't end with one.
+// This is for readability of files: \n is a separator between records.
+func appendWithOptionalNewline(buf []byte, data []byte) []byte {
+	buf = append(buf, data...)
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		buf = append(buf, '\n')
 	}
-	nWritten, err := file.Write(data)
-	if err != nil {
-		return nWritten, err
-	}
-	if data[len(data)-1] == '\n' {
-		return nWritten, nil
-	}
-	_, err = file.WriteString("\n")
-	if err != nil {
-		return 0, err
-	}
-	if sync {
-		err = file.Sync()
+	return buf
+}
+
+// appendToFile writes data at the end of the file in a single write and
+// returns the offset at which data was written. Opens the file if needed.
+// If the write (or sync) fails, the file is truncated back to its previous
+// size so that a partial write doesn't corrupt the file.
+func appendToFile(path string, filePtr **os.File, data []byte, sync bool) (int64, error) {
+	file := *filePtr
+	if file == nil {
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			return 0, err
 		}
-	}
-	return nWritten, nil
-}
-
-func appendToFile(path string, filePtr **os.File, data []byte, sync bool) (int64, int64, error) {
-	var err error
-	var off int64
-
-	file := *filePtr
-	defer func() {
-		if err != nil && file != nil {
-			file.Close()
-			*filePtr = nil
-		}
-	}()
-
-	if file == nil {
-		file, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
-		if err != nil {
-			return 0, 0, err
-		}
+		file = f
 		*filePtr = file
 	}
-	off, err = file.Seek(0, io.SeekEnd) // move to the end of the file
-	if err != nil {
-		return 0, 0, err
+	off, err := file.Seek(0, io.SeekEnd)
+	if err == nil {
+		_, err = file.Write(data)
+		if err == nil && sync {
+			err = file.Sync()
+		}
+		if err != nil {
+			_ = file.Truncate(off)
+		}
 	}
-
-	nWritten, err := writeWithOptionalNewline(file, data, sync)
 	if err != nil {
-		return 0, 0, err
+		file.Close()
+		*filePtr = nil
+		return 0, err
 	}
-	return off, int64(nWritten), nil
+	return off, nil
 }
 
 // format of the index line:
@@ -259,15 +245,16 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, timestampMs 
 		TimestampMs:    timestampMs,
 	}
 	if size > 0 {
-		off, _, err := appendToFile(s.dataFilePath, &s.dataFile, data, s.SyncWrite)
-		rec.offset = off
+		d := appendWithOptionalNewline(nil, data)
+		off, err := appendToFile(s.dataFilePath, &s.dataFile, d, s.SyncWrite)
 		if err != nil {
 			return err
 		}
+		rec.offset = off
 	}
 
 	indexLine := serializeRecord(rec)
-	if _, _, err := appendToFile(s.indexFilePath, &s.indexFile, []byte(indexLine), s.SyncWrite); err != nil {
+	if _, err := appendToFile(s.indexFilePath, &s.indexFile, []byte(indexLine), s.SyncWrite); err != nil {
 		return err
 	}
 	if s.OnRecord != nil {
@@ -316,16 +303,17 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 	}
 
 	indexLine := serializeRecord(rec)
-	sync := s.SyncWrite && len(data) > 0
-	off, _, err := appendToFile(s.indexFilePath, &s.indexFile, []byte(indexLine), sync)
+	// index line and inline data are written in a single write so that
+	// a crash can't leave an index line without its data
+	buf := make([]byte, 0, len(indexLine)+len(data)+1)
+	buf = append(buf, indexLine...)
+	buf = appendWithOptionalNewline(buf, data)
+	off, err := appendToFile(s.indexFilePath, &s.indexFile, buf, s.SyncWrite)
 	if err != nil {
 		return err
 	}
 	// set the right Offset for OnRecord
 	rec.offset = off + int64(len(indexLine))
-	if _, err = writeWithOptionalNewline(s.indexFile, data, s.SyncWrite); err != nil {
-		return err
-	}
 	if s.OnRecord != nil {
 		s.OnRecord(rec, data)
 	}
@@ -377,18 +365,18 @@ func (s *Store) appendRecordFile(kind string, fileName string, data []byte, meta
 		TimestampMs:    timestampMs,
 	}
 
-	sync := s.SyncWrite && len(metaData) > 0
 	indexLine := serializeRecord(rec)
-	off, _, err := appendToFile(s.indexFilePath, &s.indexFile, []byte(indexLine), sync)
-
+	// index line and inline meta data are written in a single write so that
+	// a crash can't leave an index line without its data
+	buf := make([]byte, 0, len(indexLine)+len(metaData)+1)
+	buf = append(buf, indexLine...)
+	buf = appendWithOptionalNewline(buf, metaData)
+	off, err := appendToFile(s.indexFilePath, &s.indexFile, buf, s.SyncWrite)
 	if err != nil {
 		return err
 	}
 	// set the right Offset for OnRecord
 	rec.offset = -(off + int64(len(indexLine)))
-	if _, err = writeWithOptionalNewline(s.indexFile, metaData, s.SyncWrite); err != nil {
-		return err
-	}
 
 	if s.OnRecord != nil {
 		s.OnRecord(rec, metaData)
@@ -494,85 +482,108 @@ type RecordData struct {
 // For inline records, Data contains the inline data. For other records, Data is nil.
 // If internKind is not nil, it will be called to intern the Kind string.
 // Call the returned error function after iteration to check for parse errors.
+//
+// An incomplete last record (index line without terminating newline or
+// truncated inline data) is the result of a crash during append and is ignored.
 func ParseIndexFromFile(path string, internKind func(string) string) (iter.Seq[RecordData], func() error) {
 	var iterErr error
-
 	seq := func(yield func(RecordData) bool) {
-		file, err := os.Open(path)
-		if err != nil {
-			iterErr = err
-			return
+		_, iterErr = parseIndexFile(path, internKind, yield)
+	}
+	return seq, func() error { return iterErr }
+}
+
+// parseIndexFile parses the index file, calling yield for each record.
+// Returns offset of the end of the last complete record. If it's smaller than
+// file size, the file ends with an incomplete record (e.g. due to a crash
+// during append).
+func parseIndexFile(path string, internKind func(string) string, yield func(RecordData) bool) (int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	var currentOffset int64 = 0
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err == io.EOF {
+			// we always write '\n' after index line, so a last line
+			// without it is a partial write (crash during append)
+			break
+		} else if err != nil {
+			return 0, fmt.Errorf("error reading index file: %w", err)
 		}
-		defer file.Close()
 
-		reader := bufio.NewReader(file)
-		var currentOffset int64 = 0
+		lineLen := int64(len(line))
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			currentOffset += lineLen
+			continue
+		}
 
-		for {
-			line, err := reader.ReadString('\n')
-			if err == io.EOF {
-				if line == "" {
-					break
-				}
-			} else if err != nil {
-				iterErr = fmt.Errorf("error reading index file: %w", err)
-				return
-			}
+		rec := &Record{}
+		err = ParseIndexLine(line, rec)
+		if err != nil {
+			return 0, err
+		}
 
-			lineLen := int64(len(line))
-			line = strings.TrimSuffix(line, "\n")
-			if line == "" {
-				currentOffset += lineLen
-				continue
-			}
+		if internKind != nil {
+			rec.Kind = internKind(rec.Kind)
+		}
 
-			rec := &Record{}
-			err = ParseIndexLine(line, rec)
-			if err != nil {
-				iterErr = err
-				return
-			}
-
-			reader.Size()
-			if internKind != nil {
-				rec.Kind = internKind(rec.Kind)
-			}
-
-			var data []byte
-			if rec.isInline() {
-				offset := currentOffset + lineLen
-				if rec.IsFile() {
-					rec.offset = -offset
-				} else {
-					rec.offset = offset
-				}
-				size := rec.Size()
-				currentOffset += lineLen + size
-				if size > 0 {
-					data = make([]byte, size)
-					_, err = io.ReadFull(reader, data)
-					if err != nil {
-						iterErr = fmt.Errorf("error reading inline data: %w", err)
-						return
-					}
-				}
-				// Skip trailing newline added for readability (if present)
-				nextByte, err := reader.Peek(1)
-				if err == nil && len(nextByte) > 0 && nextByte[0] == '\n' {
-					reader.ReadByte()
-					currentOffset++
-				}
+		var data []byte
+		if rec.isInline() {
+			offset := currentOffset + lineLen
+			if rec.IsFile() {
+				rec.offset = -offset
 			} else {
-				currentOffset += lineLen
+				rec.offset = offset
 			}
+			size := rec.Size()
+			if size > 0 {
+				data = make([]byte, size)
+				_, err = io.ReadFull(reader, data)
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					// truncated inline data i.e. crash during append
+					return currentOffset, nil
+				}
+				if err != nil {
+					return 0, fmt.Errorf("error reading inline data: %w", err)
+				}
+			}
+			currentOffset += lineLen + size
+			// Skip trailing newline added for readability (if present)
+			nextByte, err := reader.Peek(1)
+			if err == nil && len(nextByte) > 0 && nextByte[0] == '\n' {
+				reader.ReadByte()
+				currentOffset++
+			}
+		} else {
+			currentOffset += lineLen
+		}
 
-			if !yield(RecordData{Rec: rec, Data: data}) {
-				return
-			}
+		if !yield(RecordData{Rec: rec, Data: data}) {
+			return currentOffset, nil
 		}
 	}
+	return currentOffset, nil
+}
 
-	return seq, func() error { return iterErr }
+// truncateIncompleteRecord removes an incomplete record at the end of index
+// file (result of a crash during append) so that new records are appended
+// after the last complete record
+func truncateIncompleteRecord(path string, validEnd int64) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.Size() <= validEnd {
+		return nil
+	}
+	return os.Truncate(path, validEnd)
 }
 
 // readFilePart efficiently reads a specific portion of a file
@@ -665,15 +676,18 @@ func OpenStore(s *Store) error {
 		file.Close()
 	}
 
-	records, errFn := ParseIndexFromFile(s.indexFilePath, s.internKind)
-	for rd := range records {
+	validEnd, err := parseIndexFile(s.indexFilePath, s.internKind, func(rd RecordData) bool {
 		if s.OnRecord != nil {
-			d := rd.Data
-			s.OnRecord(rd.Rec, d)
+			s.OnRecord(rd.Rec, rd.Data)
 		}
-	}
-	if err := errFn(); err != nil {
+		return true
+	})
+	if err != nil {
 		return fmt.Errorf("failed to read records from index file: %w", err)
+	}
+	err = truncateIncompleteRecord(s.indexFilePath, validEnd)
+	if err != nil {
+		return fmt.Errorf("failed to remove incomplete record from index file: %w", err)
 	}
 
 	return nil

@@ -3,44 +3,40 @@ package caching_http_client
 import (
 	"bytes"
 	"io"
-
 	"net/http"
+	"sync"
 	"time"
 )
 
-// closeableBuffer adds Close() error method to bytes.Buffer
-// to satisfy io.ReadCloser interface
-type closeableBuffer struct {
-	*bytes.Buffer
-}
-
-// Close is to satisfy io.Closer interface
-func (b *closeableBuffer) Close() error {
-	// nothing to do
-	return nil
-}
-
-func readAndReplaceReadCloser(pBody *io.ReadCloser) ([]byte, error) {
-	// have to read the body from r and put it back
-	var err error
-	body := *pBody
-	// not all requests have body
-	if body == nil {
-		return nil, nil
+// readBody reads and closes body. Returns non-nil (possibly empty) slice
+// so that it can be used as cachedBody in FindCachedResponse
+func readBody(body io.ReadCloser) ([]byte, error) {
+	if body == nil || body == http.NoBody {
+		return []byte{}, nil
 	}
 	d, err := io.ReadAll(body)
+	err2 := body.Close()
 	if err != nil {
 		return nil, err
 	}
-	buf := &closeableBuffer{bytes.NewBuffer(d)}
-	*pBody = buf
+	if err2 != nil {
+		return nil, err2
+	}
+	if d == nil {
+		d = []byte{}
+	}
 	return d, nil
+}
+
+func newBody(d []byte) io.ReadCloser {
+	return io.NopCloser(bytes.NewReader(d))
 }
 
 var _ http.RoundTripper = &CachingRoundTripper{}
 
 // CachingRoundTripper is a http round-tripper that implements caching
-// of past requests
+// of past requests. It's safe for concurrent use if Cache is
+// (MemoryCache is).
 type CachingRoundTripper struct {
 	Cache RequestResponseCache
 	// this is RoundTripper to use to make the actual request
@@ -48,22 +44,26 @@ type CachingRoundTripper struct {
 	RoundTripper http.RoundTripper
 
 	// for diagnostics, you can check how many http requests
-	// were served from a cache and how many from network requests
+	// were served from a cache and how many from network requests.
+	// Use Stats() to read them while requests might be in progress.
 	RequestsFromCache    int `json:"-"`
 	RequestsNotFromCache int `json:"-"`
+
+	mu sync.Mutex
 }
 
-func (t *CachingRoundTripper) cachedRoundTrip(r *http.Request, cachedRequestBody []byte) (*http.Response, error) {
+// Stats returns number of requests served from cache and from network.
+// Safe to call concurrently with requests.
+func (t *CachingRoundTripper) Stats() (fromCache int, notFromCache int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.RequestsFromCache, t.RequestsNotFromCache
+}
+
+func (t *CachingRoundTripper) cachedRoundTrip(r *http.Request, requestBody []byte) (*http.Response, error) {
 	transport := t.RoundTripper
 	if transport == nil {
 		transport = http.DefaultTransport
-	}
-	if cachedRequestBody == nil {
-		var err error
-		cachedRequestBody, err = readAndReplaceReadCloser(&r.Body)
-		if err != nil {
-			return nil, err
-		}
 	}
 	rsp, err := transport.RoundTrip(r)
 	if err != nil {
@@ -75,45 +75,69 @@ func (t *CachingRoundTripper) cachedRoundTrip(r *http.Request, cachedRequestBody
 		return rsp, nil
 	}
 
-	d, err := readAndReplaceReadCloser(&rsp.Body)
+	d, err := readBody(rsp.Body)
 	if err != nil {
-		rsp.Body.Close()
 		return nil, err
 	}
+	rsp.Body = newBody(d)
 
 	rr := &RequestResponse{
 		Method: r.Method,
 		URL:    r.URL.String(),
-		Body:   cachedRequestBody,
+		Body:   requestBody,
 
 		Response: d,
-		Header:   rsp.Header,
+		// clone so that caller modifying rsp.Header doesn't change cached value
+		Header: rsp.Header.Clone(),
 	}
 	t.Cache.Add(rr)
+	t.mu.Lock()
 	t.RequestsNotFromCache++
+	t.mu.Unlock()
 	return rsp, nil
 }
 
 // RoundTrip is to satisfy http.RoundTripper interface
 func (t *CachingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	var cachedRequestBody []byte
-	rr, err := t.Cache.FindCachedResponse(r, &cachedRequestBody)
+	// per http.RoundTripper contract we must not modify r and must close r.Body
+	// so we read the body and send a clone of the request with a copy of the body
+	requestBody, err := readBody(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	r2 := r.Clone(r.Context())
+	r2.Body = http.NoBody
+	if len(requestBody) > 0 {
+		r2.Body = newBody(requestBody)
+		r2.GetBody = func() (io.ReadCloser, error) {
+			return newBody(requestBody), nil
+		}
+	}
+
+	cachedBody := requestBody
+	rr, err := t.Cache.FindCachedResponse(r2, &cachedBody)
 	if err != nil {
 		return nil, err
 	}
 
 	if rr == nil {
-		return t.cachedRoundTrip(r, cachedRequestBody)
+		return t.cachedRoundTrip(r2, requestBody)
 	}
 
+	t.mu.Lock()
 	t.RequestsFromCache++
+	t.mu.Unlock()
 	d := rr.Response
 	rsp := &http.Response{
-		Status:        "200",
+		Status:        "200 OK",
 		StatusCode:    200,
-		Header:        rr.Header,
-		Body:          &closeableBuffer{bytes.NewBuffer(d)},
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        rr.Header.Clone(),
+		Body:          newBody(d),
 		ContentLength: int64(len(d)),
+		Request:       r,
 	}
 	return rsp, nil
 }
@@ -128,7 +152,8 @@ func NewRoundTripper(cache RequestResponseCache) *CachingRoundTripper {
 	}
 }
 
-// New creates http.Client
+// New creates http.Client with 30 seconds timeout that caches requests
+// in cache (if nil, a new MemoryCache is created)
 func New(cache *MemoryCache) *http.Client {
 	if cache == nil {
 		cache = NewMemoryCache()

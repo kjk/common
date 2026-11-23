@@ -96,7 +96,9 @@ func TestStoreWriteAndRead(t *testing.T) {
 			// this is useful if AppendRecord() fails with partial write, without recording that in the index
 			// we still want things to work if this happens
 			d := []byte("lalalala\n")
-			err = store.appendToDataFile(d)
+			err = store.reopenFiles()
+			assert(t, err == nil, fmt.Sprintf("Failed to reopen files: %v", err))
+			_, err = appendToFile(store.dataFile, d, false)
 			assert(t, err == nil, fmt.Sprintf("Failed to append non-indexed data: %v", err))
 			currOff += int64(len(d))
 		}

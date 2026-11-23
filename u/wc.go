@@ -114,24 +114,38 @@ func MakeFilterAnd(filters ...FilterFunc) FilterFunc {
 	}
 }
 
-// FileLineCount returns number of lines in a file
+// FileLineCount returns number of lines in a file.
+// Handles LF, CRLF and CR line endings. A final line without a newline
+// is counted, a trailing newline doesn't start a new line
+// i.e. "a\nb" and "a\nb\n" both have 2 lines.
 func FileLineCount(path string) (int, error) {
 	d, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err
 	}
-	if len(d) == 0 {
-		return 0, nil
-	}
-	d = NormalizeNewlines(d)
-	nLines := 1
+	return dataLineCount(d), nil
+}
+
+func dataLineCount(d []byte) int {
 	n := len(d)
-	for i := range n {
-		if d[i] == 10 {
+	nLines := 0
+	for i := 0; i < n; i++ {
+		switch d[i] {
+		case '\n':
 			nLines++
+		case '\r':
+			nLines++
+			// CRLF is a single line ending
+			if i+1 < n && d[i+1] == '\n' {
+				i++
+			}
 		}
 	}
-	return nLines, nil
+	// last line without newline at the end
+	if n > 0 && d[n-1] != '\n' && d[n-1] != '\r' {
+		nLines++
+	}
+	return nLines
 }
 
 func (s *LineStats) CalcInDir(dir string, allowedFileFilter func(name string) bool, recur bool) error {

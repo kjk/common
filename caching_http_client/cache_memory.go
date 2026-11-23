@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/tidwall/pretty"
 )
 
 var _ RequestResponseCache = &MemoryCache{}
 
-// MemoryCache remembers past requests and responses
+// MemoryCache remembers past requests and responses.
+// Add and FindCachedResponse are safe for concurrent use.
 type MemoryCache struct {
-	// CachedRequests remembers past requests and their responses
+	// CachedRequests remembers past requests and their responses.
+	// Only access directly when no requests are in progress
 	CachedRequests []*RequestResponse `json:"cached_requests"`
 
 	// if true, will not return cached responses (but will still
@@ -23,6 +26,8 @@ type MemoryCache struct {
 	// if true, when comparing body of the request, and the body
 	// is json, we'll normalize JSON
 	CompareNormalizedJSONBody bool
+
+	mu sync.Mutex
 }
 
 var prettyOpts = pretty.Options{
@@ -49,37 +54,34 @@ func NewMemoryCache() *MemoryCache {
 
 // Add remembers a given RequestResponse
 func (c *MemoryCache) Add(rr *RequestResponse) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.CachedRequests = append(c.CachedRequests, rr)
 }
 
+// isBodySame compares body of the request with body of cached request.
+// Body is compared for all methods (POST, PUT, PATCH etc.).
+// *cachedBody is the body of r. If nil, r.Body is read (and replaced
+// with a copy) and *cachedBody is set
 func (c *MemoryCache) isBodySame(r *http.Request, rr *RequestResponse, cachedBody *[]byte) (bool, error) {
-	// only POST request takes body
-	if r.Method != http.MethodPost {
-		return true, nil
-	}
-	if r.Body == nil && len(rr.Body) == 0 {
-		return true, nil
-	}
-
 	d := *cachedBody
 	if d == nil {
 		var err error
-		d, err = readAndReplaceReadCloser(&r.Body)
+		d, err = readBody(r.Body)
 		if err != nil {
 			return false, err
 		}
-		if d == nil {
-			*cachedBody = []byte{}
-		} else {
-			if c.CompareNormalizedJSONBody {
-				d = ppJSON(d)
-			}
-			*cachedBody = d
-		}
+		r.Body = newBody(d)
+		*cachedBody = d
+	}
+	if len(d) == 0 && len(rr.Body) == 0 {
+		return true, nil
 	}
 	rrBody := rr.Body
 	if c.CompareNormalizedJSONBody {
-		rrBody = ppJSON(rr.Body)
+		// normalize copies, *cachedBody must remain the actual body
+		d = ppJSON(d)
+		rrBody = ppJSON(rrBody)
 	}
 	return bytes.Equal(d, rrBody), nil
 }
@@ -102,7 +104,11 @@ func (c *MemoryCache) FindCachedResponse(r *http.Request, cachedBody *[]byte) (*
 		return nil, nil
 	}
 
-	for _, rr := range c.CachedRequests {
+	// iterate over a snapshot so that we don't hold the lock while comparing
+	c.mu.Lock()
+	cached := c.CachedRequests
+	c.mu.Unlock()
+	for _, rr := range cached {
 		same, err := c.isCachedRequest(r, rr, cachedBody)
 		if err != nil {
 			return nil, err

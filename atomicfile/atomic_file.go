@@ -21,7 +21,7 @@ var (
 )
 
 // File allows writing to a file atomically
-// i.e. if the while file is not written successfully, we make sure
+// i.e. if the whole file is not written successfully, we make sure
 // to clean things up
 type File struct {
 	dstPath string
@@ -32,7 +32,13 @@ type File struct {
 	tmpPath string // for debugging
 }
 
-// New creates new File
+// default permissions for newly created files, same as os.Create() with
+// typical umask of 022
+const defaultPerm os.FileMode = 0644
+
+// New creates new File.
+// If the destination file already exists, it keeps its permissions.
+// Otherwise the file is created with 0644 permissions.
 func New(path string) (*File, error) {
 	dir, fName := filepath.Split(path)
 	dir, err := filepath.Abs(dir)
@@ -45,6 +51,17 @@ func New(path string) (*File, error) {
 
 	tmpFile, err := os.CreateTemp(dir, fName)
 	if err != nil {
+		return nil, err
+	}
+	// os.CreateTemp() creates files with 0600 permissions and they would be
+	// preserved by rename in Close()
+	perm := defaultPerm
+	if st, err := os.Stat(path); err == nil {
+		perm = st.Mode().Perm()
+	}
+	if err = tmpFile.Chmod(perm); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
 		return nil, err
 	}
 
@@ -60,7 +77,7 @@ func (f *File) handleError(err error) error {
 	if err == nil {
 		return nil
 	}
-	// remember the first errro
+	// remember the first error
 	if f.err == nil {
 		f.err = err
 	}
@@ -78,12 +95,14 @@ func (f *File) Write(d []byte) (int, error) {
 	return n, f.handleError(err)
 }
 
+// SetWriteDeadline is a pass-through to os.File.SetWriteDeadline.
+// Regular files don't support deadlines so it returns os.ErrNoDeadline.
+// Unlike other errors, it doesn't cancel writing the file.
 func (f *File) SetWriteDeadline(t time.Time) error {
 	if f.err != nil {
 		return f.err
 	}
-	err := f.tmpFile.SetWriteDeadline(t)
-	return f.handleError(err)
+	return f.tmpFile.SetWriteDeadline(t)
 }
 
 func (f *File) Sync() error {
@@ -160,12 +179,16 @@ func (f *File) Close() error {
 
 	// cleanup things (delete temporary files) if:
 	// - there was an error in Write()
-	// - thre was an error in Sync()
+	// - there was an error in Sync()
 	// - Close() failed
 	// - rename to destination failed
 
 	// https://www.joeshaw.org/dont-defer-close-on-writable-files/
-	errSync := tmpFile.Sync()
+	// no need to sync if the file will be deleted
+	var errSync error
+	if f.err == nil {
+		errSync = tmpFile.Sync()
+	}
 	errClose := tmpFile.Close()
 
 	// delete the temporary file in case of errors

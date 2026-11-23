@@ -80,3 +80,39 @@ func TestGetCallstackFramesIncludesLast(t *testing.T) {
 	frames := GetCallstackFrames(0)
 	assert.True(t, len(frames) > 0)
 }
+
+func TestDataLineCount(t *testing.T) {
+	tests := []struct {
+		s   string
+		exp int
+	}{
+		{"", 0},
+		{"a", 1},
+		{"a\n", 1},
+		{"a\nb", 2},
+		{"a\nb\n", 2},
+		{"a\r\nb\r\n", 2},
+		{"a\rb\r", 2},
+		{"\n", 1},
+		{"\n\n", 2},
+		{"a\r\n\r\nb", 3},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.exp, dataLineCount([]byte(tc.s)), tc.s)
+	}
+}
+
+func TestExistsFollowsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	assert.NoError(t, os.Mkdir(target, 0755))
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("can't create symlinks: %v", err)
+	}
+	assert.True(t, DirExists(link))
+	isDir, err := PathIsDir(link)
+	assert.NoError(t, err)
+	assert.True(t, isDir)
+	assert.True(t, PathExists(link))
+}

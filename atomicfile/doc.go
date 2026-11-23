@@ -12,21 +12,22 @@ This logic is non-trivial.
 Package atomicfile makes it easy to get this logic right:
 
 	func writeToFileAtomically(filePath string, data []byte) error {
-		w, err := atomicfile.New(filePath)
+		f, err := atomicfile.New(filePath)
 		if err != nil {
 			return err
 		}
-		// calling Close() twice is a no-op
-		defer w.Close()
+		// ensure that if there's a panic or early exit due to
+		// error, the file will not be created
+		// RemoveIfNotClosed() after Close() is a no-op
+		defer f.RemoveIfNotClosed()
 
-		_, err = w.Write(data)
+		_, err = f.Write(data)
 		if err != nil {
 			return err
 		}
-		return w.Close()
+		return f.Close()
 	}
 
-
-To learn more see https://presstige.io/p/atomicfile-22143bf788b542fda2262ca7aee57ae4
+To learn more see https://blog.kowalczyk.info/article/90f01e0e24924f6c8ed428f065c0016a/atomicfile-robustly-writing-to-a-file-in-go.html
 */
 package atomicfile

@@ -13,21 +13,24 @@ import (
 	"path/filepath"
 )
 
-// PathExists returns true if path exists
+// PathExists returns true if path exists.
+// Follows symlinks, so returns false for a broken symlink.
 func PathExists(path string) bool {
-	_, err := os.Lstat(path)
+	_, err := os.Stat(path)
 	return err == nil
 }
 
 // FileExists returns true if path exists and is a regular file
+// (or a symlink to a regular file)
 func FileExists(path string) bool {
-	st, err := os.Lstat(path)
+	st, err := os.Stat(path)
 	return err == nil && st.Mode().IsRegular()
 }
 
 // DirExists returns true if path exists and is a directory
+// (or a symlink to a directory)
 func DirExists(path string) bool {
-	st, err := os.Lstat(path)
+	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
 }
 
@@ -42,9 +45,10 @@ func PathIsDir(path string) (isDir bool, err error) {
 	return fi.IsDir(), nil
 }
 
-// FileSize gets file size, -1 if file doesn't exist
+// FileSize gets file size, -1 if file doesn't exist.
+// Follows symlinks.
 func FileSize(path string) int64 {
-	st, err := os.Lstat(path)
+	st, err := os.Stat(path)
 	if err == nil {
 		return st.Size()
 	}

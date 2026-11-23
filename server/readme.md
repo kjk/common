@@ -26,7 +26,7 @@ func MakeHTTPServer(srv *server.Server) *http.Server {
 	httpSrv := &http.Server{
 		ReadTimeout:  120 * time.Second,
 		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  120 * time.Second, // introduced in Go 1.8
+		IdleTimeout:  120 * time.Second,
 		Handler:      srv,
 	}
 	httpSrv.Addr = httpAddr
@@ -83,7 +83,6 @@ func StartServer(srv *server.Server) func() {
 }
 ```
 
-````
 
 Utility functions used above:
 
@@ -113,7 +112,7 @@ func panicIf(cond bool, arg ...any) {
 }
 
 func isWindows() bool {
-	return strings.Contains(runtime.GOOS, "windows")
+	return runtime.GOOS == "windows"
 }
 
 func openBrowser(url string) {
@@ -134,10 +133,6 @@ func openBrowser(url string) {
 	}
 }
 
-func isWindows() bool {
-	return strings.Contains(runtime.GOOS, "windows")
-}
-
 func formatSize(n int64) string {
 	sizes := []int64{1024 * 1024 * 1024, 1024 * 1024, 1024}
 	suffixes := []string{"GB", "MB", "kB"}
@@ -150,5 +145,4 @@ func formatSize(n int64) string {
 	}
 	return fmt.Sprintf("%d bytes", n)
 }
-
-````
+```

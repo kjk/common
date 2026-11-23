@@ -17,7 +17,6 @@ files from templates) and can be turned into a fully static website easily
 * `httplogproxy` : http(s) proxy that logs requests and responses
 * `caching_http_client` : `http.RoundTripper` that caches responses
 * `log` : logging to stdout and daily files, plus structured events
-* `logtastic` : client for sending logs, events and errors to a logtastic server
 * `siserlogger` : daily-rotated logger writing `siser` records
 * `minioutil` : helpers for S3-compatible storage via minio client
 * `deploy` : helpers for deploying a Go binary to a server over ssh / sftp

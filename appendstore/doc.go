@@ -26,10 +26,10 @@
 //	defer s.CloseFiles()
 //
 //	// Append a record
-//	err = s.AppendRecord("kind", "meta string", []byte("value1"))
+//	err = s.AppendData("kind", "meta string", []byte("value1"))
 //
 //	// Read records
-//	for _, rec := range s.Records() {
+//	for rec := range s.RecordsIter() {
 //	    data, err := s.ReadRecord(rec)
 //	    // ...
 //	}
@@ -41,7 +41,7 @@
 // for storing in record metadata or data.
 //
 //	line, err := appendstore.KeyValueMarshal("name", "John Doe", "age", "30")
-//	// line: `name:John age:30`
+//	// line: `name:"John Doe" age:30`
 //
 //	pairs, err := appendstore.KeyValueUnmarshal(line)
 //	// pairs: ["name", "John Doe", "age", "30"]

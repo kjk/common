@@ -1,8 +1,8 @@
 package u
 
 import (
+	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,28 +21,75 @@ Another option that wouldn't require winmerge is to make it a web server,
 implement web-based ui and launch the browser.
 */
 
-var (
-	gitPath      string
-	winMergePath string
-	tempDir      string
-)
-
-const (
-	// gitStatusModified represents a modified git status line
-	gitStatusModified = iota
-	// gitSatusAdded represents a added git status line
-	gitSatusAdded
-	// gitStatusDeleted represents a deleted git status line
-	gitStatusDeleted
-	// gitStatusNotCheckedIn represents a not checked in git status line
-	gitStatusNotCheckedIn
-)
-
-// gitChange represents a single git change
+// gitChange represents a single changed file in `git status`
 type gitChange struct {
-	Type int // Modified, Added etc.
+	// path relative to the root of the repository, '/' separated
 	Path string
-	Name string
+	// for renames and copies, the original path (in HEAD)
+	OrigPath string
+	// true if the file is in HEAD (i.e. not added / untracked)
+	InHead bool
+	// true if file is untracked (not checked in)
+	Untracked bool
+}
+
+// headPath returns path of the file in HEAD
+func (c *gitChange) headPath() string {
+	if c.OrigPath != "" {
+		return c.OrigPath
+	}
+	return c.Path
+}
+
+// parseGitStatusZ parses output of `git status --porcelain -z`
+// Format of each entry: "XY path\x00", for renames and copies: "XY path\x00origPath\x00"
+// See https://git-scm.com/docs/git-status#_short_format
+func parseGitStatusZ(out []byte, includeUntracked bool) ([]*gitChange, error) {
+	var res []*gitChange
+	entries := bytes.Split(out, []byte{0})
+	for i := 0; i < len(entries); i++ {
+		e := string(entries[i])
+		if e == "" {
+			continue
+		}
+		if len(e) < 4 || e[2] != ' ' {
+			return nil, fmt.Errorf("invalid git status entry: '%s'", e)
+		}
+		x, y := e[0], e[1]
+		c := &gitChange{
+			Path: e[3:],
+		}
+		if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+			// next entry is the original path
+			i++
+			if i >= len(entries) {
+				return nil, fmt.Errorf("missing original path for rename entry: '%s'", e)
+			}
+			c.OrigPath = string(entries[i])
+		}
+		switch {
+		case x == '!':
+			// ignored file
+			continue
+		case x == '?':
+			c.Untracked = true
+			if !includeUntracked {
+				continue
+			}
+		case x == 'A':
+			// added to index (also "AA" i.e. unmerged, both added)
+			c.InHead = false
+		case x == 'C':
+			// copy: the new file is not in HEAD
+			c.InHead = false
+			c.OrigPath = ""
+		default:
+			// modified, deleted, renamed, type changed, unmerged etc.
+			c.InHead = true
+		}
+		res = append(res, c)
+	}
+	return res, nil
 }
 
 func detectExeMust(name string) string {
@@ -53,105 +100,40 @@ func detectExeMust(name string) string {
 	}
 	fmt.Printf("Couldn't find '%s'\n", name)
 	must(err)
-	// TODO: could also try known locations for WinMerge in $env["ProgramFiles(x86)"]/WinMerge/WinMergeU.exe
 	return ""
 }
 
-func parseGitStatusLineMust(s string) *gitChange {
-	c := &gitChange{}
-	parts := strings.SplitN(s, " ", 2)
-	PanicIf(len(parts) != 2, "invalid line: '%s'\n", s)
-	switch parts[0] {
-	case "M":
-		c.Type = gitStatusModified
-	case "A":
-		c.Type = gitSatusAdded
-	case "D":
-		c.Type = gitStatusDeleted
-	case "??":
-		c.Type = gitStatusNotCheckedIn
-	case "RM":
-		// TODO: handle line:
-		// RM tools/diff-preview.go -> do/diff_preview.go
-		return nil
-	default:
-		PanicIf(true, "invalid line: '%s'\n", s)
+func detectWinMergeMust() string {
+	var candidates []string
+	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)"} {
+		if dir := os.Getenv(env); dir != "" {
+			candidates = append(candidates, filepath.Join(dir, "WinMerge", "WinMergeU.exe"))
+		}
 	}
-	c.Path = strings.TrimSpace(parts[1])
-	c.Name = filepath.Base(c.Path)
-	return c
+	if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
+		candidates = append(candidates, filepath.Join(dir, "Programs", "WinMerge", "WinMergeU.exe"))
+	}
+	for _, path := range candidates {
+		if FileExists(path) {
+			return path
+		}
+	}
+	return detectExeMust("WinMergeU")
 }
 
-func detectExesMust() {
-	gitPath = detectExeMust("git")
-	path := `C:\Program Files\WinMerge\WinMergeU.exe`
-	if !PathExists(path) {
-		path = `C:\Users\kjk\AppData\Local\Programs\WinMerge\WinMergeU.exe`
-	}
-	if PathExists(path) {
-		winMergePath = path
-		return
-	}
-	winMergePath = detectExeMust("WinMergeU")
-}
-
-func createTempDirMust() {
-	dir := getWinTempDirMust()
-	// we want a stable name so that we can clean up old junk
-	tempDir = filepath.Join(dir, "sum-diff-preview")
-	err := os.MkdirAll(tempDir, 0755)
-	must(err)
-}
-
-func getWinTempDirMust() string {
-	dir := os.Getenv("TEMP")
-	if dir != "" {
-		return dir
-	}
-	dir = os.Getenv("TMP")
-	PanicIf(dir == "", "env variable TEMP and TMP are not set\n")
-	return dir
-}
-
-func runCmd(exePath string, args ...string) ([]byte, error) {
+func runCmdInDir(dir string, exePath string, args ...string) ([]byte, error) {
 	cmd := exec.Command(exePath, args...)
+	cmd.Dir = dir
 	fmt.Printf("running: %s %v\n", filepath.Base(exePath), args)
 	return cmd.Output()
 }
 
-func runCmdNoWait(exePath string, args ...string) error {
-	cmd := exec.Command(exePath, args...)
-	fmt.Printf("running: %s %v\n", filepath.Base(exePath), args)
-	return cmd.Start()
-}
-
-func parseGitStatusMust(out []byte, includeNotCheckedIn bool) []*gitChange {
-	var res []*gitChange
-	lines := ToTrimmedLines(out)
-	for _, l := range lines {
-		c := parseGitStatusLineMust(l)
-		if c == nil {
-			continue
-		}
-		if !includeNotCheckedIn && c.Type == gitStatusNotCheckedIn {
-			continue
-		}
-		res = append(res, c)
-	}
-	return res
-}
-
-func gitStatusMust() []*gitChange {
-	out, err := runCmd(gitPath, "status", "--porcelain")
+func gitRootMust(gitPath string) string {
+	out, err := runCmdInDir("", gitPath, "rev-parse", "--show-toplevel")
 	must(err)
-	return parseGitStatusMust(out, false)
-}
-
-func gitGetFileContentHeadMust(path string) []byte {
-	loc := "HEAD:" + path
-	out, err := runCmd(gitPath, "show", loc)
-	must(err)
-	return out
+	root := strings.TrimSpace(string(out))
+	PanicIf(root == "", "git rev-parse --show-toplevel returned empty string")
+	return filepath.FromSlash(root)
 }
 
 func getBeforeAfterDirs(dir string) (string, string) {
@@ -161,7 +143,7 @@ func getBeforeAfterDirs(dir string) (string, string) {
 }
 
 // https://manual.winmerge.org/Command_line.html
-func runWinMerge(dir string) {
+func runWinMergeMust(winMergePath string, dir string) {
 	dirBefore, dirAfter := getBeforeAfterDirs(dir)
 	/*
 		/e : close with Esc
@@ -169,93 +151,46 @@ func runWinMerge(dir string) {
 		/wl, wr : open left/right as read-only
 		/r : recursive compare
 	*/
-	err := runCmdNoWait(winMergePath, "/u", "/wl", "/wr", dirBefore, dirAfter)
-	must(err)
+	args := []string{"/e", "/u", "/wl", "/wr", "/r", dirBefore, dirAfter}
+	cmd := exec.Command(winMergePath, args...)
+	fmt.Printf("running: %s %v\n", filepath.Base(winMergePath), args)
+	must(cmd.Start())
 }
 
-func catGitHeadToFileMust(dst, gitPath string) {
-	fmt.Printf("catGitHeadToFileMust: %s => %s\n", gitPath, dst)
-	d := gitGetFileContentHeadMust(gitPath)
-	f, err := os.Create(dst)
-	must(err)
-	defer f.Close()
-	_, err = f.Write(d)
-	must(err)
+func writeFileMkdirMust(path string, d []byte) {
+	must(os.MkdirAll(filepath.Dir(path), 0755))
+	must(os.WriteFile(path, d, 0644))
 }
 
-func createEmptyFileMust(path string) {
-	f, err := os.Create(path)
-	must(err)
-	f.Close()
-}
-
-func copyFileMust(dst, src string) {
-	// ensure windows-style dir separator
-	dst = strings.Replace(dst, "/", "\\", -1)
-	src = strings.Replace(src, "/", "\\", -1)
-
-	fdst, err := os.Create(dst)
-	must(err)
-	defer fdst.Close()
-	fsrc, err := os.Open(src)
-	must(err)
-	defer fsrc.Close()
-	_, err = io.Copy(fdst, fsrc)
-	must(err)
-}
-func copyFileAddedMust(dirBefore, dirAfter string, change *gitChange) {
-	// empty file in before, content in after
-	path := filepath.Join(dirBefore, change.Name)
-	createEmptyFileMust(path)
-	path = filepath.Join(dirAfter, change.Name)
-	copyFileMust(path, change.Path)
-}
-
-func copyFileDeletedMust(dirBefore, dirAfter string, change *gitChange) {
-	// empty file in after
-	path := filepath.Join(dirAfter, change.Name)
-	createEmptyFileMust(path)
-	// version from HEAD in before
-	path = filepath.Join(dirBefore, change.Name)
-	catGitHeadToFileMust(path, change.Path)
-}
-
-func copyFileModifiedMust(dirBefore, dirAfter string, change *gitChange) {
-	// current version on disk in after
-	path := filepath.Join(dirAfter, change.Name)
-	copyFileMust(path, change.Path)
-	// version from HEAD in before
-	path = filepath.Join(dirBefore, change.Name)
-	catGitHeadToFileMust(path, change.Path)
-}
-
-func copyFileChangeMust(dir string, change *gitChange) {
+// copyChangeMust writes HEAD version of the file to dirBefore and current
+// version to dirAfter. If the file doesn't exist in HEAD (added) or on disk
+// (deleted), an empty file is written instead.
+// Files keep their relative path so that files with the same name in
+// different directories don't collide.
+func copyChangeMust(gitPath, gitRoot, dir string, change *gitChange) {
 	dirBefore, dirAfter := getBeforeAfterDirs(dir)
-	switch change.Type {
-	case gitSatusAdded:
-		copyFileAddedMust(dirBefore, dirAfter, change)
-	case gitStatusModified:
-		copyFileModifiedMust(dirBefore, dirAfter, change)
-	case gitStatusDeleted:
-		copyFileDeletedMust(dirBefore, dirAfter, change)
-	default:
-		PanicIf(true, "unknown change %+v\n", change)
-	}
-}
+	relPath := filepath.FromSlash(change.Path)
 
-func gitCopyFiles(dir string, changes []*gitChange) {
-	dirBefore, dirAfter := getBeforeAfterDirs(dir)
-	err := os.MkdirAll(dirBefore, 0755)
-	must(err)
-	err = os.MkdirAll(dirAfter, 0755)
-	must(err)
-	for _, change := range changes {
-		copyFileChangeMust(dir, change)
+	var before []byte
+	if change.InHead {
+		var err error
+		before, err = runCmdInDir(gitRoot, gitPath, "show", "HEAD:"+change.headPath())
+		must(err)
 	}
+	writeFileMkdirMust(filepath.Join(dirBefore, relPath), before)
+
+	var after []byte
+	diskPath := filepath.Join(gitRoot, relPath)
+	if FileExists(diskPath) {
+		var err error
+		after, err = os.ReadFile(diskPath)
+		must(err)
+	}
+	writeFileMkdirMust(filepath.Join(dirAfter, relPath), after)
 }
 
 // delete directories older than 1 day in tempDir
-func deleteOldDirs() {
+func deleteOldDirs(tempDir string) {
 	files, err := os.ReadDir(tempDir)
 	must(err)
 	for _, fi := range files {
@@ -263,68 +198,51 @@ func deleteOldDirs() {
 			// we shouldn't create anything but dirs
 			continue
 		}
-		info, _ := fi.Info()
+		info, err := fi.Info()
+		if err != nil {
+			continue
+		}
 		age := time.Since(info.ModTime())
 		path := filepath.Join(tempDir, fi.Name())
 		if age > time.Hour*24 {
 			fmt.Printf("Deleting %s because older than 1 day\n", path)
 			err = os.RemoveAll(path)
 			must(err)
-		} else {
-			fmt.Printf("Not deleting %s because younger than 1 day (%s)\n", path, age)
 		}
 	}
 }
 
-func hasGitDirMust(dir string) bool {
-	files, err := os.ReadDir(dir)
-	must(err)
-	for _, fi := range files {
-		if strings.ToLower(fi.Name()) == ".git" {
-			return fi.IsDir()
-		}
-	}
-	return false
-}
-
-// git status returns names relative to root of
-func cdToGitRoot() {
-	var newDir string
-	dir, err := os.Getwd()
-	must(err)
-	for {
-		if hasGitDirMust(dir) {
-			break
-		}
-		newDir = filepath.Dir(dir)
-		PanicIf(dir == newDir, "dir == newDir (%s == %s)", dir, newDir)
-		dir = newDir
-	}
-	if newDir != "" {
-		fmt.Printf("Changed current dir to: '%s'\n", newDir)
-		os.Chdir(newDir)
-	}
-}
-
+// WinmergeDiffPreview shows uncommitted changes in the git repository
+// of the current directory in WinMerge.
 func WinmergeDiffPreview() {
-	detectExesMust()
-	createTempDirMust()
-	fmt.Printf("temp dir: %s\n", tempDir)
-	deleteOldDirs()
+	gitPath := detectExeMust("git")
+	winMergePath := detectWinMergeMust()
 
-	cdToGitRoot()
-	changes := gitStatusMust()
+	// we want a stable name so that we can clean up old junk
+	tempDir := filepath.Join(os.TempDir(), "sum-diff-preview")
+	must(os.MkdirAll(tempDir, 0755))
+	fmt.Printf("temp dir: %s\n", tempDir)
+	deleteOldDirs(tempDir)
+
+	// git status returns paths relative to the root of the repository
+	gitRoot := gitRootMust(gitPath)
+	out, err := runCmdInDir(gitRoot, gitPath, "status", "--porcelain", "-z")
+	must(err)
+	changes, err := parseGitStatusZ(out, false)
+	must(err)
 	if len(changes) == 0 {
-		fmt.Printf("No changes to preview!")
-		os.Exit(0)
+		fmt.Printf("No changes to preview!\n")
+		return
 	}
 	fmt.Printf("%d change(s)\n", len(changes))
 
-	// TODO: verify GitChange.Name is unique in changes
 	subDir := time.Now().Format("2006-01-02_15_04_05")
 	dir := filepath.Join(tempDir, subDir)
-	err := os.MkdirAll(dir, 0755)
-	must(err)
-	gitCopyFiles(dir, changes)
-	runWinMerge(dir)
+	dirBefore, dirAfter := getBeforeAfterDirs(dir)
+	must(os.MkdirAll(dirBefore, 0755))
+	must(os.MkdirAll(dirAfter, 0755))
+	for _, change := range changes {
+		copyChangeMust(gitPath, gitRoot, dir, change)
+	}
+	runWinMergeMust(winMergePath, dir)
 }

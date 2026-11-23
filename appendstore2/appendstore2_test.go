@@ -105,7 +105,7 @@ func TestStoreWriteAndRead(t *testing.T) {
 			// this is useful if AppendRecord() fails with partial write, without recording that in the index
 			// we still want things to work if this happens
 			d := []byte("lalalala\n")
-			_, _, err = appendToFile(store.dataFilePath, &store.dataFile, d, store.SyncWrite)
+			_, err = appendToFile(store.dataFilePath, &store.dataFile, d, store.SyncWrite)
 			a(t, err == nil, "Failed to append non-indexed data: %v", err)
 			currOff += int64(len(d))
 		}

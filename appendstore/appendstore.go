@@ -51,8 +51,7 @@ type Store struct {
 	// when many records share the same Kind
 	internedKinds []string
 
-	mu             sync.Mutex
-	currDataOffset int64
+	mu sync.Mutex
 }
 
 // internKind returns an interned version of the kind string.
@@ -131,12 +130,11 @@ func (s *Store) reopenFiles() error {
 		}
 	}
 	if s.dataFile == nil {
-		off, err := openFileSeekToEnd(s.dataFilePath, &s.dataFile)
+		_, err := openFileSeekToEnd(s.dataFilePath, &s.dataFile)
 		if err != nil {
 			s.closeFiles()
 			return err
 		}
-		s.currDataOffset = off
 	}
 	return nil
 }
@@ -164,21 +162,24 @@ func (s *Store) closeFiles() error {
 	return err2
 }
 
+// appendToFile writes data at the end of the file in a single write and
+// returns the offset at which data was written.
+// If the write (or sync) fails, the file is truncated back to its previous
+// size so that a partial write doesn't corrupt the file.
 func appendToFile(file *os.File, data []byte, sync bool) (int64, error) {
-	nWritten, err := file.Write(data)
+	off, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return 0, err
 	}
-	if nWritten < len(data) {
-		return 0, fmt.Errorf("failed to write all data to file: wrote %d bytes, expected %d bytes", nWritten, len(data))
-	}
-	if sync {
+	_, err = file.Write(data)
+	if err == nil && sync {
 		err = file.Sync()
-		if err != nil {
-			return 0, err
-		}
 	}
-	return int64(nWritten), nil
+	if err != nil {
+		_ = file.Truncate(off)
+		return 0, err
+	}
+	return off, nil
 }
 
 // format of the index line:
@@ -237,11 +238,13 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, timestampMs 
 		TimestampMs: timestampMs,
 	}
 	if size > 0 {
-		rec.Offset = s.currDataOffset
-		err := s.appendToDataFile(data)
+		// offset is where the data was actually written, not a cached value,
+		// so it's correct even if the data file was changed externally
+		off, err := appendToFile(s.dataFile, data, s.SyncWrite)
 		if err != nil {
 			return err
 		}
+		rec.Offset = off
 	}
 
 	indexLine := serializeRecord(rec)
@@ -250,23 +253,6 @@ func (s *Store) appendRecord(kind string, meta string, data []byte, timestampMs 
 		return err
 	}
 	s.allRecords = append(s.allRecords, rec)
-	return nil
-}
-
-func (s *Store) appendToDataFile(data []byte) error {
-	if err := s.reopenFiles(); err != nil {
-		return err
-	}
-	_, err := s.dataFile.Seek(0, io.SeekEnd) // move to the end of the file
-	if err != nil {
-		return err
-	}
-
-	if nWritten, err := appendToFile(s.dataFile, data, s.SyncWrite); err != nil {
-		return err
-	} else {
-		s.currDataOffset += nWritten
-	}
 	return nil
 }
 
@@ -329,43 +315,22 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 
 	indexLine := serializeRecord(rec)
 
-	// Get current position in index file to calculate where inline data will be
-	currentPos, err := s.indexFile.Seek(0, io.SeekEnd)
+	// index line and inline data are written in a single write so that
+	// a crash can't leave an index line without its data
+	buf := make([]byte, 0, len(indexLine)+len(data)+1)
+	buf = append(buf, indexLine...)
+	buf = append(buf, data...)
+	// For readability, add a newline after inline data if it doesn't end with one
+	// This newline is not included in the recorded size
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		buf = append(buf, '\n')
+	}
+	off, err := appendToFile(s.indexFile, buf, s.SyncWrite)
 	if err != nil {
 		return err
 	}
-
 	// The inline data starts right after the index line
-	rec.Offset = currentPos + int64(len(indexLine))
-
-	// Write the index line
-	_, err = s.indexFile.WriteString(indexLine)
-	if err != nil {
-		return err
-	}
-
-	// Write the inline data immediately after
-	if len(data) > 0 {
-		_, err = s.indexFile.Write(data)
-		if err != nil {
-			return err
-		}
-		// For readability, add a newline after inline data if it doesn't end with one
-		// This newline is not included in the recorded size
-		if data[len(data)-1] != '\n' {
-			_, err = s.indexFile.WriteString("\n")
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if s.SyncWrite {
-		err = s.indexFile.Sync()
-		if err != nil {
-			return err
-		}
-	}
+	rec.Offset = off + int64(len(indexLine))
 
 	s.allRecords = append(s.allRecords, rec)
 	return nil
@@ -513,10 +478,21 @@ func ParseIndexLine(line string, rec *Record) error {
 // ParseIndexFromFile parses index lines from a file into a slice of Records.
 // This function properly handles inline data by tracking file positions.
 // If internKind is not nil, it will be called to intern the Kind string.
+//
+// An incomplete last record (index line without terminating newline or
+// truncated inline data) is the result of a crash during append and is ignored.
 func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record, error) {
+	records, _, err := parseIndexFile(path, internKind)
+	return records, err
+}
+
+// parseIndexFile parses the index file and returns records and the offset
+// of the end of the last complete record. If validEnd is smaller than file size,
+// the file ends with an incomplete record (e.g. due to a crash during append).
+func parseIndexFile(path string, internKind func(string) string) ([]*Record, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer file.Close()
 
@@ -527,12 +503,11 @@ func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record,
 	for {
 		line, err := reader.ReadString('\n')
 		if err == io.EOF {
-			if line == "" {
-				break
-			}
-			// process last line without newline
+			// we always write '\n' after index line, so a last line without
+			// it is a partial write (crash during append)
+			break
 		} else if err != nil {
-			return nil, fmt.Errorf("error reading index file: %w", err)
+			return nil, 0, fmt.Errorf("error reading index file: %w", err)
 		}
 
 		lineLen := int64(len(line))
@@ -545,7 +520,7 @@ func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record,
 		rec := &Record{}
 		err = ParseIndexLine(line, rec)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		if internKind != nil {
@@ -555,14 +530,18 @@ func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record,
 		if rec.DataInline {
 			// Data follows immediately after this line
 			rec.Offset = currentOffset + lineLen
-			currentOffset += lineLen + rec.Size
 			// Skip past the inline data in the buffer
 			if rec.Size > 0 {
 				_, err = io.CopyN(io.Discard, reader, rec.Size)
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					// truncated inline data i.e. crash during append
+					break
+				}
 				if err != nil {
-					return nil, fmt.Errorf("error skipping inline data: %w", err)
+					return nil, 0, fmt.Errorf("error skipping inline data: %w", err)
 				}
 			}
+			currentOffset += lineLen + rec.Size
 			// Skip trailing newline added for readability (if present)
 			nextByte, err := reader.Peek(1)
 			if err == nil && len(nextByte) > 0 && nextByte[0] == '\n' {
@@ -575,7 +554,21 @@ func ParseIndexFromFile(path string, internKind func(string) string) ([]*Record,
 
 		records = append(records, rec)
 	}
-	return records, nil
+	return records, currentOffset, nil
+}
+
+// truncateIncompleteRecord removes an incomplete record at the end of index
+// file (result of a crash during append) so that new records are appended
+// after the last complete record
+func truncateIncompleteRecord(path string, validEnd int64) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if st.Size() <= validEnd {
+		return nil
+	}
+	return os.Truncate(path, validEnd)
 }
 
 // ParseIndexFromData parses multiple index lines from a byte slice into a slice of Records.
@@ -658,10 +651,6 @@ func (s *Store) ReadRecord(r *Record) ([]byte, error) {
 	return readFilePart(s.dataFilePath, r.Offset, r.Size)
 }
 
-func readAllRecords(path string, internKind func(string) string) ([]*Record, error) {
-	return ParseIndexFromFile(path, internKind)
-}
-
 // OpenStore initializes the Store by loading existing records from the index file.
 func OpenStore(s *Store) error {
 	if s.DataDir == "" {
@@ -698,9 +687,14 @@ func OpenStore(s *Store) error {
 		file.Close()
 	}
 
-	s.allRecords, err = readAllRecords(s.indexFilePath, s.internKind)
+	var validEnd int64
+	s.allRecords, validEnd, err = parseIndexFile(s.indexFilePath, s.internKind)
 	if err != nil {
 		return fmt.Errorf("failed to read records from index file: %w", err)
+	}
+	err = truncateIncompleteRecord(s.indexFilePath, validEnd)
+	if err != nil {
+		return fmt.Errorf("failed to remove incomplete record from index file: %w", err)
 	}
 
 	return nil

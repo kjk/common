@@ -28,7 +28,7 @@ if err != nil {
 }
 
 // add data with name "bar.txt"
-err := a.AddData([]byte("content of the file", "bar.txt", pak.Metadata{}))
+err = a.AddData([]byte("content of the file"), "bar.txt", pak.Metadata{})
 if err != nil {
     log.Fatal("failed to add a file\n")
 }
@@ -41,7 +41,7 @@ if err != nil {
 }
 // alternatively, write to any io.Writer:
 // var wr io.Writer = ...
-// err = w.Write(wr)
+// err = a.Write(wr)
 ```
 
 ## Read `pak` archive
@@ -51,7 +51,6 @@ archive, err := pak.ReadArchive("myarchive.pak")
 if err != nil {
     log.Fatalf("failed to open an archive with '%s'\n", err)
 }
-defer f.Close()
 entries := archive.Entries
 fmt.Printf("Archive has %d entries\n", len(entries))
 entry := entries[0]
@@ -62,7 +61,7 @@ if err != nil {
 // alternatively, you can use entry.Offset and entry.Size to read the data
 
 // print metadata entries
-for _, m := entry.Metadata.Meta {
+for _, m := range entry.Metadata.Meta {
 	fmt.Printf("metadata entry: key='%s', value='%s'\n", m.Key, m.Value)
 }
 ```
@@ -77,11 +76,11 @@ I wanted a simple and fast way to send a file out of the archive to the browser,
 
 Zip doesn't natively support brotli compression. This can be fixed (zip allows to store uncompressed files) but I took this opportunity to implement my own archive format which supports arbitrary per-file meta-data.
 
-Building on top of my [siser](https://github.com/kjk/siser) library it's under 400 lines of code.
+Building on top of my [siser](https://github.com/kjk/common/tree/main/siser) library it's under 400 lines of code.
 
-The format is very simple: the header at the beginning of the file contains a list of files with their mata-data and position in the archive.
+The format is very simple: the header at the beginning of the file contains a list of files with their meta-data and position in the archive.
 
-The header is stored in [siser](https://github.com/kjk/siser) format.
+The header is stored in [siser](https://github.com/kjk/common/tree/main/siser) format.
 
 The data for each file follows.
 

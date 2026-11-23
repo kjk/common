@@ -381,12 +381,20 @@ func makePermRedirect(uri string) func(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) FindHandler(uri string) (h HandlerFunc, is404 bool) {
+	origURI := uri
 	if strings.HasSuffix(uri, "/") {
 		uri = path.Join(uri, "/index.html")
 	}
 	if h = s.FindHandlerExact(uri); h != nil {
-		if s.ForceCleanURLS && u.ExtEqualFold(uri, ".html") {
-			uri = u.TrimExt(uri)
+		// only redirect if url explicitly ends with .html (not e.g. "/" or "/foo/")
+		if s.ForceCleanURLS && u.ExtEqualFold(origURI, ".html") {
+			if strings.HasSuffix(origURI, "/index.html") {
+				// /foo/index.html => /foo/
+				uri = strings.TrimSuffix(origURI, "index.html")
+			} else {
+				// /foo.html => /foo
+				uri = u.TrimExt(origURI)
+			}
 			h = makePermRedirect(uri)
 		}
 		return h, false
