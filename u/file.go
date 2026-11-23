@@ -73,7 +73,7 @@ func CopyFile(dst string, src string) error {
 	if err != nil || err2 != nil {
 		os.Remove(dst)
 	}
-	return err
+	return GetErr(err, err2)
 }
 
 func FileSha1Hex(path string) (string, error) {

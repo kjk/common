@@ -67,6 +67,7 @@ func (r *Reader) ReadNextData() bool {
 		return false
 	}
 	r.Name = ""
+	r.Timestamp = time.Time{}
 	r.CurrRecordPos = r.NextRecordPos
 
 	// read header in the format:
@@ -121,7 +122,7 @@ func (r *Reader) ReadNextData() bool {
 	}
 
 	size, err := strconv.ParseInt(string(dataSize), 10, 64)
-	if err != nil {
+	if err != nil || size < 0 {
 		r.err = fmt.Errorf("unexpected header '%s'", string(hdr))
 		return false
 	}

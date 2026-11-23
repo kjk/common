@@ -81,9 +81,12 @@ func (s *Store) Records() []*Record {
 // Usage: for rec := range store.RecordsIter() { ... }
 func (s *Store) RecordsIter() iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
+		// snapshot under lock and iterate without holding it so that
+		// the loop body can call other Store methods without deadlocking
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		for _, rec := range s.allRecords {
+		recs := s.allRecords
+		s.mu.Unlock()
+		for _, rec := range recs {
 			if !yield(rec) {
 				return
 			}
@@ -96,9 +99,10 @@ func (s *Store) RecordsIter() iter.Seq[*Record] {
 func (s *Store) RecordsIterBackward() iter.Seq[*Record] {
 	return func(yield func(*Record) bool) {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		for i := len(s.allRecords) - 1; i >= 0; i-- {
-			if !yield(s.allRecords[i]) {
+		recs := s.allRecords
+		s.mu.Unlock()
+		for i := len(recs) - 1; i >= 0; i-- {
+			if !yield(recs[i]) {
 				return
 			}
 		}

@@ -56,6 +56,8 @@ func LineStatsPerExt(fileToCount map[string]*LineCount) []*LineCount {
 type FilterFunc func(string) bool
 
 func MakeAllowedFileFilterForExts(exts ...string) FilterFunc {
+	// don't modify caller's slice
+	exts = slices.Clone(exts)
 	for i, ext := range exts {
 		exts[i] = strings.ToLower(ext)
 	}
@@ -79,7 +81,12 @@ func MakeExcludeDirsFilter(dirs ...string) FilterFunc {
 			if slices.Contains(dirs, name) {
 				return false
 			}
-			path = filepath.Dir(path)
+			parent := filepath.Dir(path)
+			if parent == path {
+				// reached root of absolute path e.g. "/" or "C:\"
+				break
+			}
+			path = parent
 		}
 		return true
 	}
@@ -137,7 +144,9 @@ func (s *LineStats) CalcInDir(dir string, allowedFileFilter func(name string) bo
 		path := filepath.Join(dir, name)
 		if fi.IsDir() {
 			if recur {
-				s.CalcInDir(path, allowedFileFilter, recur)
+				if err := s.CalcInDir(path, allowedFileFilter, recur); err != nil {
+					return err
+				}
 			}
 			continue
 		}

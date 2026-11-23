@@ -70,6 +70,11 @@ func (f *File) Write(d []byte) error {
 }
 
 func (f *File) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.file == nil {
+		return nil
+	}
 	err := f.file.Close()
 	f.siser = nil
 	f.file = nil

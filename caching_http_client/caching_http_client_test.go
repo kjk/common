@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alecthomas/assert"
+	"github.com/kjk/common/assert"
 )
 
 var (

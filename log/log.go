@@ -196,11 +196,11 @@ func GetCallstackFrames(skip int) []string {
 	var cs []string
 	for {
 		frame, more := frames.Next()
+		s := frame.File + ":" + strconv.Itoa(frame.Line)
+		cs = append(cs, s)
 		if !more {
 			break
 		}
-		s := frame.File + ":" + strconv.Itoa(frame.Line)
-		cs = append(cs, s)
 	}
 	return cs
 }
@@ -299,6 +299,9 @@ func appendRequestValues(r *http.Request, vals []any) []any {
 // simpleTypeToStr converts simple types to string
 // panics if v is of complex type
 func simpleTypeToStr(v any) string {
+	if v == nil {
+		return "<nil>"
+	}
 	rt := reflect.TypeOf(v)
 	kind := rt.Kind()
 	switch kind {
@@ -309,7 +312,7 @@ func simpleTypeToStr(v any) string {
 	case reflect.String:
 		return v.(string)
 	}
-	return fmt.Sprintf("%s", v)
+	return fmt.Sprint(v)
 }
 
 // Event logs event in toon format with
@@ -354,7 +357,7 @@ func HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	Logf("HandleEvent: '%s', vals: %#v\n", name, vals)
-	EventFromRequest(r, name, vals)
+	EventFromRequest(r, name, vals...)
 	v := map[string]any{
 		"Message": "ok",
 	}
@@ -418,7 +421,7 @@ func ErrorEventFromRequest(r *http.Request, err error, name string, vals ...any)
 
 func serveJSONStatus(w http.ResponseWriter, v any, statusCode int) {
 	d, _ := json.Marshal(v)
-	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
 	w.Write(d)
 }

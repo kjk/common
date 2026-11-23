@@ -64,7 +64,6 @@ func logf(s string, args ...any) {
 
 func logtasticWorker() {
 	logf("logtasticWorker started\n")
-	logWorkerStopped.Add(1)
 	for op := range logWorkerCh {
 		// logfLocal("logtasticPOST %s\n", op.uri)
 		writeLog(op.d)
@@ -99,7 +98,8 @@ func logtasticWorker() {
 			throttleUntil = time.Now().Add(throttleTimeout)
 		}
 	}
-	close(logWorkerCh)
+	// we don't close(logWorkerCh) because a concurrent logtasticPOST()
+	// or a second Stop() would panic sending on a closed channel
 	logWorkerStopped.Done()
 	logf("logtasticWorker stopped\n")
 }
@@ -127,7 +127,7 @@ func Stop() {
 
 func fullURL(server string, uriPath string) string {
 	httpScheme := "https://"
-	if strings.Contains(server, "localhost") || strings.Contains(server, "127.0.0.01") {
+	if strings.Contains(server, "localhost") || strings.Contains(server, "127.0.0.1") {
 		httpScheme = "http://"
 	}
 
@@ -139,6 +139,9 @@ func logtasticPOST(uriPath string, d []byte, mime string) {
 		return
 	}
 	startLogWorker.Do(func() {
+		// must Add() before starting goroutine so that Stop() can't
+		// call Wait() before the worker is accounted for
+		logWorkerStopped.Add(1)
 		go logtasticWorker()
 	})
 
@@ -153,7 +156,7 @@ func logtasticPOST(uriPath string, d []byte, mime string) {
 	select {
 	case logWorkerCh <- op:
 	default:
-		logf("logtasticPOST %s failed: channel full or closed\n", uri)
+		logf("logtasticPOST %s failed: channel full\n", uri)
 	}
 }
 
@@ -177,10 +180,16 @@ func writeLog(d []byte) {
 	FileLogs.Write2(d, true)
 }
 
+// protects lazy opening of siser log files in writeSiserLog
+var siserLogOpenMu sync.Mutex
+
 func writeSiserLog(name string, lPtr **siserlogger.File, d []byte) {
 	if LogDir == "" {
 		return
 	}
+	// called concurrently from http handlers
+	siserLogOpenMu.Lock()
+	defer siserLogOpenMu.Unlock()
 	if *lPtr == nil {
 		l, err := siserlogger.NewDaily(LogDir, name, nil)
 		if err != nil {
@@ -319,6 +328,10 @@ func CheckServerAlive(server string) error {
 		return errors.New("server is empty string")
 	}
 	uri := fullURL(server, "/ping")
-	_, err := http.Get(uri)
-	return err
+	resp, err := http.Get(uri)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
 }

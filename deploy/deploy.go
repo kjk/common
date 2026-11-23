@@ -110,7 +110,7 @@ func sshRunCommandMust(client *goph.Client, exe string, args ...string) {
 	logf("running '%s' on the server\n", cmd.String())
 	out, err := cmd.CombinedOutput()
 	logf("%s:\n%s\n", cmd.String(), string(out))
-	panicIf(err != nil, "cmd.Output() failed with '%s'\n", err)
+	panicIf(err != nil, "cmd.CombinedOutput() failed with '%s'\n", err)
 }
 
 func copyToServerMaybeGzippedMust(client *goph.Client, sftp *sftp.Client, localPath, remotePath string, gzipped bool) {
@@ -166,7 +166,7 @@ func deleteOldBuilds(c *Config) {
 }
 
 func writeToFileMust(path string, content string, perm os.FileMode) {
-	logf("createEmptyFile: '%s'\n", path)
+	logf("writeToFileMust: '%s'\n", path)
 	must(os.MkdirAll(filepath.Dir(path), 0755))
 	os.Remove(path)
 	err := os.WriteFile(path, []byte(content), perm)
@@ -256,7 +256,7 @@ func ToHetzner(c *Config) {
 	{
 		err = sftp.Chmod(serverExePath, 0755)
 		panicIf(err != nil, "sftp.Chmod() failed with '%s'", err)
-		logf("created dir on the server '%s'\n", c.ServerDir)
+		logf("made executable on the server '%s'\n", serverExePath)
 	}
 
 	sshRunCommandMust(client, serverExePath, "-setup-and-run")
@@ -329,7 +329,7 @@ func SetupOnServerAndRun(c *Config) {
 		writeToFileMust(c.SystemdRunScriptPath, runScript, kPermExecutable)
 
 		// systemd .service file linked from /etc/systemd/system/
-		writeToFileMust(c.SystemdServicePath, c.SystemdService, kPermExecutable)
+		writeToFileMust(c.SystemdServicePath, c.SystemdService, 0644)
 		os.Remove(c.SystemdServiceLink)
 		err := os.Symlink(c.SystemdServicePath, c.SystemdServiceLink)
 		panicIf(err != nil, "os.Symlink(%s, %s) failed with '%s'", c.SystemdServicePath,

@@ -156,16 +156,17 @@ func serveFileMaybeBr(w http.ResponseWriter, r *http.Request, opts *ServeFileOpt
 			if err != nil {
 				return false
 			}
+			// only cache data we compressed on demand; opts.compressedCached
+			// is only allocated in this branch
+			serveFileMu.Lock()
+			opts.compressedCached[path] = brData
+			serveFileMu.Unlock()
 		}
 	}
 
 	if len(brData) == 0 {
 		return false
 	}
-
-	serveFileMu.Lock()
-	opts.compressedCached[path] = brData
-	serveFileMu.Unlock()
 
 	ct := u.MimeTypeFromFileName(path)
 	if ct != "" {

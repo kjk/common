@@ -23,7 +23,6 @@ func NewEmbedFSHandler(fsys embed.FS, dirPrefix, urlPrefix string) *EmbedFSHandl
 	var urls, paths []string
 	u.IterReadDirFS(fsys, dirPrefix, func(filePath string, d fs.DirEntry) error {
 		dir := strings.TrimPrefix(filePath, dirPrefix)
-		dir = strings.TrimPrefix(dir, dirPrefix)
 		// embed.FS uses "/" as path separator
 		uri := path.Join(urlPrefix, dir)
 		urls = append(urls, uri)

@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -18,21 +19,20 @@ import (
 // can be used for http.Get() requests with better timeouts. New one must be created
 // for each Get() request
 func NewTimeoutClient(connectTimeout time.Duration, readWriteTimeout time.Duration) *http.Client {
-	timeoutDialer := func(cTimeout time.Duration, rwTimeout time.Duration) func(net, addr string) (c net.Conn, err error) {
-		return func(netw, addr string) (net.Conn, error) {
-			conn, err := net.DialTimeout(netw, addr, cTimeout)
-			if err != nil {
-				return nil, err
-			}
-			conn.SetDeadline(time.Now().Add(rwTimeout))
-			return conn, nil
+	dialer := &net.Dialer{Timeout: connectTimeout}
+	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dialer.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
 		}
+		conn.SetDeadline(time.Now().Add(readWriteTimeout))
+		return conn, nil
 	}
 
 	return &http.Client{
 		Transport: &http.Transport{
-			Dial:  timeoutDialer(connectTimeout, readWriteTimeout),
-			Proxy: http.ProxyFromEnvironment,
+			DialContext: dialContext,
+			Proxy:       http.ProxyFromEnvironment,
 		},
 	}
 }
@@ -161,7 +161,7 @@ func SmartPermanentRedirect(w http.ResponseWriter, r *http.Request, uri string) 
 	SmartRedirect(w, r, uri, http.StatusMovedPermanently) // 301
 }
 
-// GetRequestIPAddress returns IP address of the request even for proxied requests
+// GetBestRemoteAddress returns IP address of the request even for proxied requests
 func GetBestRemoteAddress(r *http.Request) string {
 	h := r.Header
 	potentials := []string{h.Get("CF-Connecting-IP"), h.Get("X-Real-Ip"), h.Get("X-Forwarded-For"), r.RemoteAddr}

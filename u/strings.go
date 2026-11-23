@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // NormalizeNewlinesInPlace changes CRLF (Windows) and
@@ -45,7 +47,8 @@ func Capitalize(s string) string {
 		return s
 	}
 	s = strings.ToLower(s)
-	return strings.ToUpper(s[0:1]) + s[1:]
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[n:]
 }
 
 // TrimPrefix is like strings.TrimPrefix but also returns a bool

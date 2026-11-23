@@ -42,7 +42,7 @@ func SimpleServer(opts SimpleServerOptions) error {
 			return path
 		}
 		// foo/ => foo/index.html
-		if fileExists(name + "index.html") {
+		if fileExists(filepath.Join(name, "index.html")) {
 			return path
 		}
 		// foo/bar => foo/bar.html

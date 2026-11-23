@@ -14,6 +14,9 @@ func TestRoundtrip(t *testing.T) {
 		{"k1", "v1", "k2", "", "k1:v1 k2:"},
 		{"k1", "v1", "k2", "\n", "k1:v1 k2:\"\\n\""},
 		{"k", "v l", `k:"v l"`},
+		// quoted value followed by another key/value
+		{"name", "John Doe", "age", "30", `name:"John Doe" age:30`},
+		{"a", "x y", "b", "p q", "c", "z", `a:"x y" b:"p q" c:z`},
 		{"k1", "v1", "k2", "v2", "k3", "val3", "k1:v1 k2:v2 k3:val3"},
 		{"key1", "value1", "key1:value1"},
 		{"k", "", "k:"},

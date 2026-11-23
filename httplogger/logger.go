@@ -65,8 +65,14 @@ func New(dir string, didRotateFn func(path string)) (*File, error) {
 }
 
 func (l *File) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.file == nil {
+		return nil
+	}
 	err := l.file.Close()
 	l.file = nil
+	l.siser = nil
 	return err
 }
 

@@ -36,8 +36,6 @@ type File struct {
 
 	creationTime time.Time
 
-	//Location *time.Location
-
 	config Config
 	file   *os.File
 
@@ -58,7 +56,7 @@ func New(config *Config) (*File, error) {
 		return nil, fmt.Errorf("must provide config")
 	}
 	if config.PathIfShouldRotate == nil {
-		return nil, fmt.Errorf("must provide config.ShouldRotate")
+		return nil, fmt.Errorf("must provide config.PathIfShouldRotate")
 	}
 	file := &File{
 		config: *config,
@@ -136,21 +134,12 @@ func (f *File) close(didRotate bool) error {
 	return err
 }
 
-/*
-func nowInMaybeLocation(loc *time.Location) time.Time {
-	now := time.Now()
-	if loc != nil {
-		now = now.In(loc)
-	}
-	return now
-}
-*/
-
+// open only updates f.Path and f.creationTime after successfully opening
+// the file so that a failed open is retried on next write instead of
+// failing all writes until the next rotation period
 func (f *File) open(path string) error {
-	f.Path = path
-	f.creationTime = time.Now()
 	// we can't assume that the dir for the file already exists
-	dir := filepath.Dir(f.Path)
+	dir := filepath.Dir(path)
 	err := os.MkdirAll(dir, 0755)
 	if err != nil {
 		return err
@@ -158,12 +147,19 @@ func (f *File) open(path string) error {
 
 	// would be easier to open with os.O_APPEND but Seek() doesn't work in that case
 	flag := os.O_CREATE | os.O_WRONLY
-	f.file, err = os.OpenFile(f.Path, flag, 0644)
+	file, err := os.OpenFile(path, flag, 0644)
 	if err != nil {
 		return err
 	}
-	_, err = f.file.Seek(0, io.SeekEnd)
-	return err
+	_, err = file.Seek(0, io.SeekEnd)
+	if err != nil {
+		file.Close()
+		return err
+	}
+	f.file = file
+	f.Path = path
+	f.creationTime = time.Now()
+	return nil
 }
 
 func (f *File) reopenIfNeeded() error {
@@ -231,5 +227,8 @@ func (f *File) Sync() error {
 	f.Lock()
 	defer f.Unlock()
 
+	if f.file == nil {
+		return nil
+	}
 	return f.file.Sync()
 }

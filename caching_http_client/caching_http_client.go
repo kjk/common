@@ -77,6 +77,7 @@ func (t *CachingRoundTripper) cachedRoundTrip(r *http.Request, cachedRequestBody
 
 	d, err := readAndReplaceReadCloser(&rsp.Body)
 	if err != nil {
+		rsp.Body.Close()
 		return nil, err
 	}
 

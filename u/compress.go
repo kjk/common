@@ -18,11 +18,16 @@ import (
 // implement io.ReadCloser over os.File wrapped with io.Reader.
 // io.Closer goes to os.File, io.Reader goes to wrapping reader
 type readerWrappedFile struct {
-	f *os.File
-	r io.Reader
+	// optional, called on Close() to release reader's resources
+	closeReader func()
+	f           *os.File
+	r           io.Reader
 }
 
 func (rc *readerWrappedFile) Close() error {
+	if rc.closeReader != nil {
+		rc.closeReader()
+	}
 	return rc.f.Close()
 }
 
@@ -30,7 +35,7 @@ func (rc *readerWrappedFile) Read(p []byte) (int, error) {
 	return rc.r.Read(p)
 }
 
-func wrapInReadeCloser(f *os.File, r io.Reader, err error) (io.ReadCloser, error) {
+func wrapInReadCloser(f *os.File, r io.Reader, err error) (io.ReadCloser, error) {
 	if err != nil {
 		f.Close()
 		return nil, err
@@ -52,19 +57,24 @@ func OpenFileMaybeCompressed(path string) (io.ReadCloser, error) {
 	}
 	if ext == ".gz" {
 		r, err := gzip.NewReader(f)
-		return wrapInReadeCloser(f, r, err)
+		return wrapInReadCloser(f, r, err)
 	}
 	if ext == ".bz2" {
 		r := bzip2.NewReader(f)
-		return wrapInReadeCloser(f, r, nil)
+		return wrapInReadCloser(f, r, nil)
 	}
-	if ext == ".zstd" {
+	if ext == ".zstd" || ext == ".zst" {
 		r, err := zstd.NewReader(f)
-		return wrapInReadeCloser(f, r, err)
+		rc, err := wrapInReadCloser(f, r, err)
+		if err == nil {
+			// zstd.Decoder runs goroutines that must be released with Close()
+			rc.(*readerWrappedFile).closeReader = r.Close
+		}
+		return rc, err
 	}
 	if ext == ".br" {
 		r := brotli.NewReader(f)
-		return wrapInReadeCloser(f, r, nil)
+		return wrapInReadCloser(f, r, nil)
 	}
 	return f, nil
 }
@@ -96,12 +106,7 @@ func ZipDirToWriter(w io.Writer, dirToZip string) error {
 			return err
 		}
 		//fmt.Printf("%s\n", path)
-		isDir, err := PathIsDir(pathToZip)
-		if err != nil {
-			//fmt.Printf("PathIsDir() for %s failed with %s\n", pathToZip, err.Error())
-			return err
-		}
-		if isDir {
+		if info.IsDir() {
 			return nil
 		}
 		toZipReader, err := os.Open(pathToZip)
@@ -111,7 +116,10 @@ func ZipDirToWriter(w io.Writer, dirToZip string) error {
 		}
 		defer toZipReader.Close()
 
-		zipName := pathToZip[len(dirToZip)+1:] // +1 for '/' in the path
+		zipName, err := filepath.Rel(dirToZip, pathToZip)
+		if err != nil {
+			return err
+		}
 		// per zip.Writer.Create(), name must be slash-separated so on Windows
 		// we have to convert backslashes to slashes
 		zipName = filepath.ToSlash(zipName)
@@ -228,6 +236,13 @@ func CreateZipFile(dst string, baseDir string, toZip ...string) {
 func UnzipDataToDir(zipData []byte, dir string) error {
 	writeFile := func(f *zip.File, data []byte) error {
 		// names in zip are unix-style, convert to windows-style
+		if f.FileInfo().IsDir() {
+			return nil
+		}
+		// protect against zip-slip i.e. names like "../../foo"
+		if !filepath.IsLocal(f.Name) {
+			return fmt.Errorf("invalid file name '%s' in zip", f.Name)
+		}
 		name := filepath.FromSlash(f.Name)
 		path := filepath.Join(dir, name)
 		err := os.MkdirAll(filepath.Dir(path), 0755)

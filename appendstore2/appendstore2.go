@@ -326,7 +326,9 @@ func (s *Store) appendRecordInline(kind string, meta string, data []byte, timest
 	if _, err = writeWithOptionalNewline(s.indexFile, data, s.SyncWrite); err != nil {
 		return err
 	}
-	s.OnRecord(rec, data)
+	if s.OnRecord != nil {
+		s.OnRecord(rec, data)
+	}
 	return nil
 }
 
@@ -388,7 +390,9 @@ func (s *Store) appendRecordFile(kind string, fileName string, data []byte, meta
 		return err
 	}
 
-	s.OnRecord(rec, metaData)
+	if s.OnRecord != nil {
+		s.OnRecord(rec, metaData)
+	}
 	return nil
 }
 

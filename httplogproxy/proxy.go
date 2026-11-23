@@ -131,9 +131,10 @@ func lgShort(s string) {
 		if logLineCount <= 1 {
 			os.Stdout.WriteString(previousLogLine)
 		} else {
-			s = strings.TrimSpace(previousLogLine)
-			s = fmt.Sprintf("%s x %d\n", s, logLineCount)
-			os.Stdout.WriteString(s)
+			// don't overwrite s, it's the new line we must remember
+			summary := strings.TrimSpace(previousLogLine)
+			summary = fmt.Sprintf("%s x %d\n", summary, logLineCount)
+			os.Stdout.WriteString(summary)
 		}
 	}
 	previousLogLine = s

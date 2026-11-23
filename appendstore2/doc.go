@@ -1,4 +1,4 @@
-// Package appendstore provides a simple append-only storage system with
+// Package appendstore2 provides a simple append-only storage system with
 // an index file and a data file.
 //
 // The store is designed for scenarios where data needs to be persisted

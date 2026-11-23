@@ -94,17 +94,18 @@ func serve404FileCached(w http.ResponseWriter, r *http.Request, path string, cac
 }
 
 func makeServeFile(path string, tryServeCompressed bool) func(w http.ResponseWriter, r *http.Request) {
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	// created once (not per request) so that on-demand compressed data
+	// cached in opts is re-used across requests
+	opts := httputil.ServeFileOptions{
+		FS:              os.DirFS(dir),
+		ServeCompressed: tryServeCompressed,
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(path, "404.html") {
 			serve404FileCached(w, r, path, nil)
 			return
-		}
-		dir := filepath.Dir(path)
-		fsys := os.DirFS(dir)
-		name := filepath.Base(path)
-		opts := httputil.ServeFileOptions{
-			FS:              fsys,
-			ServeCompressed: tryServeCompressed,
 		}
 		if !httputil.TryServeFileFromFS(w, r, &opts, name) {
 			http.ServeFile(w, r, path)
@@ -474,5 +475,13 @@ func WriteServerFilesToZip(handlers []Handler, onWritten func(path string, d []b
 		}
 	}
 	IterContent(handlers, writeFile)
-	return buf.Bytes(), err
+	if err != nil {
+		return nil, err
+	}
+	// writes zip central directory; without it the zip is corrupt
+	err = zw.Close()
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

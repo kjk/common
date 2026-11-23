@@ -57,6 +57,7 @@ func KeyValueMarshal(keyValues ...string) (string, error) {
 func KeyValueUnmarshal(str string) ([]string, error) {
 	var res []string
 	s := str
+outer:
 	for len(s) > 0 {
 		keyEnd := strings.IndexByte(s, ':')
 		if keyEnd == -1 {
@@ -105,10 +106,11 @@ func KeyValueUnmarshal(str string) ([]string, error) {
 					if len(s) == 0 {
 						return res, nil
 					}
-					if s[0] != 0 {
+					if s[0] != ' ' {
 						return nil, fmt.Errorf("unexpected character '%c' after value in '%s'", s[0], str)
 					}
 					s = s[1:]
+					continue outer
 				default:
 					buf.WriteByte(s[i])
 				}

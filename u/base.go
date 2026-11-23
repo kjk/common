@@ -80,11 +80,11 @@ func GetCallstackFrames(skipFrames int) []string {
 	var cs []string
 	for {
 		frame, more := frames.Next()
+		s := frame.File + ":" + strconv.Itoa(frame.Line)
+		cs = append(cs, s)
 		if !more {
 			break
 		}
-		s := frame.File + ":" + strconv.Itoa(frame.Line)
-		cs = append(cs, s)
 	}
 	return cs
 }

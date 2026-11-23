@@ -36,13 +36,16 @@ func WaitForServerReady(uri string) error {
 	for range 10 {
 		var resp *http.Response
 		resp, err = c.Get(uri)
-		if err == nil && resp.StatusCode == http.StatusOK {
+		if err == nil {
 			resp.Body.Close()
-			return nil
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			err = fmt.Errorf("GET %s returned status %d", uri, resp.StatusCode)
 		}
 		time.Sleep(time.Second * 1)
 	}
-	return nil
+	return err
 }
 
 // FormatSize formats a number in a human-readable form e.g. 1.24 kB

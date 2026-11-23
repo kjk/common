@@ -10,11 +10,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"github.com/kjk/common/atomicfile"
-	"github.com/kjk/common/u"
 	"strings"
 
 	"github.com/andybalholm/brotli"
+	"github.com/kjk/common/atomicfile"
+	"github.com/kjk/common/u"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -59,7 +59,7 @@ func New(config *Config) (*Client, error) {
 		return nil, err
 	}
 	if !found {
-		return nil, fmt.Errorf("bucket '%s' doesn't existt", c.Bucket)
+		return nil, fmt.Errorf("bucket '%s' doesn't exist", c.Bucket)
 	}
 
 	return &Client{
@@ -144,7 +144,9 @@ func (c *Client) DownloadFileAtomically(dstPath string, remotePath string) error
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	// GetObject() is lazy so errors like missing object only show up during
+	// io.Copy(); in that case we must not create (a partial) dstPath
+	defer f.RemoveIfNotClosed()
 	_, err = io.Copy(f, obj)
 	if err != nil {
 		return err
@@ -213,16 +215,13 @@ func brotliCompress(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 	w := brotli.NewWriterLevel(&buf, brotli.BestCompression)
 	_, err = io.Copy(w, f)
 	if err != nil {
 		return nil, err
 	}
 	err = w.Close()
-	if err != nil {
-		return nil, err
-	}
-	err = f.Close()
 	if err != nil {
 		return nil, err
 	}
